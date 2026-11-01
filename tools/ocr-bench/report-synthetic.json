@@ -1,0 +1,325 @@
+{
+ "n_images": 24,
+ "results": {
+  "tess_fast/raw": {
+   "sec_median": 0.31,
+   "prep_sec": 0.116,
+   "all": {
+    "n": 24,
+    "total": 54.2,
+    "merchant": 70.8,
+    "date": 100.0,
+    "nip": 66.7,
+    "items": 37.4,
+    "polish": 73.7
+   },
+   "L0": {
+    "n": 8,
+    "total": 75.0,
+    "merchant": 100.0,
+    "date": 100.0,
+    "nip": 87.5,
+    "items": 50.0,
+    "polish": 100.0
+   },
+   "L1": {
+    "n": 8,
+    "total": 50.0,
+    "merchant": 100.0,
+    "date": 100.0,
+    "nip": 100.0,
+    "items": 57.8,
+    "polish": 100.0
+   },
+   "L2": {
+    "n": 8,
+    "total": 37.5,
+    "merchant": 12.5,
+    "date": 100.0,
+    "nip": 12.5,
+    "items": 4.6,
+    "polish": 25.8
+   }
+  },
+  "tess_best/raw": {
+   "sec_median": 0.69,
+   "prep_sec": 0.116,
+   "all": {
+    "n": 24,
+    "total": 58.3,
+    "merchant": 70.8,
+    "date": 95.8,
+    "nip": 70.8,
+    "items": 47.7,
+    "polish": 73.3
+   },
+   "L0": {
+    "n": 8,
+    "total": 87.5,
+    "merchant": 100.0,
+    "date": 100.0,
+    "nip": 100.0,
+    "items": 69.7,
+    "polish": 100.0
+   },
+   "L1": {
+    "n": 8,
+    "total": 50.0,
+    "merchant": 100.0,
+    "date": 100.0,
+    "nip": 100.0,
+    "items": 64.1,
+    "polish": 98.6
+   },
+   "L2": {
+    "n": 8,
+    "total": 37.5,
+    "merchant": 12.5,
+    "date": 87.5,
+    "nip": 12.5,
+    "items": 9.2,
+    "polish": 25.8
+   }
+  },
+  "ppocr/raw": {
+   "sec_median": 0.63,
+   "prep_sec": 0.116,
+   "all": {
+    "n": 24,
+    "total": 100.0,
+    "merchant": 100.0,
+    "date": 100.0,
+    "nip": 100.0,
+    "items": 95.9,
+    "polish": 34.3
+   },
+   "L0": {
+    "n": 8,
+    "total": 100.0,
+    "merchant": 100.0,
+    "date": 100.0,
+    "nip": 100.0,
+    "items": 98.5,
+    "polish": 49.4
+   },
+   "L1": {
+    "n": 8,
+    "total": 100.0,
+    "merchant": 100.0,
+    "date": 100.0,
+    "nip": 100.0,
+    "items": 100.0,
+    "polish": 46.6
+   },
+   "L2": {
+    "n": 8,
+    "total": 100.0,
+    "merchant": 100.0,
+    "date": 100.0,
+    "nip": 100.0,
+    "items": 89.2,
+    "polish": 9.0
+   }
+  },
+  "ocrs/raw": {
+   "sec_median": 0.29,
+   "prep_sec": 0.116,
+   "all": {
+    "n": 24,
+    "total": 83.3,
+    "merchant": 95.8,
+    "date": 100.0,
+    "nip": 75.0,
+    "items": 59.5,
+    "polish": 0.0
+   },
+   "L0": {
+    "n": 8,
+    "total": 75.0,
+    "merchant": 100.0,
+    "date": 100.0,
+    "nip": 75.0,
+    "items": 60.6,
+    "polish": 0.0
+   },
+   "L1": {
+    "n": 8,
+    "total": 100.0,
+    "merchant": 100.0,
+    "date": 100.0,
+    "nip": 75.0,
+    "items": 65.6,
+    "polish": 0.0
+   },
+   "L2": {
+    "n": 8,
+    "total": 75.0,
+    "merchant": 87.5,
+    "date": 100.0,
+    "nip": 75.0,
+    "items": 52.3,
+    "polish": 0.0
+   }
+  },
+  "tess_fast/prep": {
+   "sec_median": 0.54,
+   "prep_sec": 0.391,
+   "all": {
+    "n": 24,
+    "total": 66.7,
+    "merchant": 91.7,
+    "date": 95.8,
+    "nip": 83.3,
+    "items": 54.4,
+    "polish": 91.6
+   },
+   "L0": {
+    "n": 8,
+    "total": 100.0,
+    "merchant": 100.0,
+    "date": 100.0,
+    "nip": 100.0,
+    "items": 100.0,
+    "polish": 100.0
+   },
+   "L1": {
+    "n": 8,
+    "total": 75.0,
+    "merchant": 100.0,
+    "date": 100.0,
+    "nip": 100.0,
+    "items": 60.9,
+    "polish": 100.0
+   },
+   "L2": {
+    "n": 8,
+    "total": 25.0,
+    "merchant": 75.0,
+    "date": 87.5,
+    "nip": 50.0,
+    "items": 1.5,
+    "polish": 76.4
+   }
+  },
+  "tess_best/prep": {
+   "sec_median": 1.12,
+   "prep_sec": 0.391,
+   "all": {
+    "n": 24,
+    "total": 66.7,
+    "merchant": 91.7,
+    "date": 95.8,
+    "nip": 87.5,
+    "items": 52.3,
+    "polish": 91.2
+   },
+   "L0": {
+    "n": 8,
+    "total": 100.0,
+    "merchant": 100.0,
+    "date": 100.0,
+    "nip": 100.0,
+    "items": 95.5,
+    "polish": 98.9
+   },
+   "L1": {
+    "n": 8,
+    "total": 75.0,
+    "merchant": 100.0,
+    "date": 100.0,
+    "nip": 100.0,
+    "items": 59.4,
+    "polish": 98.6
+   },
+   "L2": {
+    "n": 8,
+    "total": 25.0,
+    "merchant": 75.0,
+    "date": 87.5,
+    "nip": 62.5,
+    "items": 1.5,
+    "polish": 77.5
+   }
+  },
+  "ppocr/prep": {
+   "sec_median": 0.77,
+   "prep_sec": 0.391,
+   "all": {
+    "n": 24,
+    "total": 100.0,
+    "merchant": 100.0,
+    "date": 95.8,
+    "nip": 100.0,
+    "items": 99.5,
+    "polish": 43.0
+   },
+   "L0": {
+    "n": 8,
+    "total": 100.0,
+    "merchant": 100.0,
+    "date": 100.0,
+    "nip": 100.0,
+    "items": 100.0,
+    "polish": 48.3
+   },
+   "L1": {
+    "n": 8,
+    "total": 100.0,
+    "merchant": 100.0,
+    "date": 100.0,
+    "nip": 100.0,
+    "items": 100.0,
+    "polish": 52.1
+   },
+   "L2": {
+    "n": 8,
+    "total": 100.0,
+    "merchant": 100.0,
+    "date": 87.5,
+    "nip": 100.0,
+    "items": 98.5,
+    "polish": 30.3
+   }
+  },
+  "ocrs/prep": {
+   "sec_median": 0.36,
+   "prep_sec": 0.391,
+   "all": {
+    "n": 24,
+    "total": 70.8,
+    "merchant": 75.0,
+    "date": 100.0,
+    "nip": 70.8,
+    "items": 35.9,
+    "polish": 0.0
+   },
+   "L0": {
+    "n": 8,
+    "total": 75.0,
+    "merchant": 100.0,
+    "date": 100.0,
+    "nip": 87.5,
+    "items": 50.0,
+    "polish": 0.0
+   },
+   "L1": {
+    "n": 8,
+    "total": 75.0,
+    "merchant": 62.5,
+    "date": 100.0,
+    "nip": 75.0,
+    "items": 50.0,
+    "polish": 0.0
+   },
+   "L2": {
+    "n": 8,
+    "total": 62.5,
+    "merchant": 62.5,
+    "date": 100.0,
+    "nip": 50.0,
+    "items": 7.7,
+    "polish": 0.0
+   }
+  }
+ }
+}

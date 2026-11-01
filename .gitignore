@@ -1,0 +1,9 @@
+# Реальные чеки и выписки никогда не попадают в репозиторий
+/samples/
+/target/
+**/.cache/
+**/node_modules/
+**/__pycache__/
+tools/ocr-bench/out/
+.DS_Store
+tools/ocr-bench/phone/results.jsonl
