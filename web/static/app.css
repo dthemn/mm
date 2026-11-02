@@ -1,0 +1,20 @@
+:root { color-scheme: light dark; --bg: #f7f7f5; --fg: #1c1c1a; --muted: #6b6b66; --line: #deded8; --accent: #0f766e; --danger: #b42318; }
+@media (prefers-color-scheme: dark) { :root { --bg: #151514; --fg: #f2f2ee; --muted: #a0a09a; --line: #33332f; --accent: #2dd4bf; --danger: #f97066; } }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 17px/1.45 system-ui, sans-serif; }
+main { max-width: 480px; margin: 0 auto; padding: max(20px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left)); display: flex; flex-direction: column; gap: 12px; }
+h1 { font-size: 28px; margin: 12px 0 4px; } h2 { font-size: 19px; margin: 20px 0 0; }
+p { margin: 0; }
+button, input, textarea { font: inherit; color: inherit; min-height: 44px; border-radius: 10px; border: 1px solid var(--line); background: transparent; padding: 8px 14px; width: 100%; }
+button { cursor: pointer; } button:disabled { opacity: .5; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+button.danger { color: var(--danger); border-color: var(--danger); }
+label { display: flex; flex-direction: column; gap: 4px; color: var(--muted); }
+label.check { flex-direction: row; align-items: center; gap: 10px; color: var(--fg); } label.check input { width: 22px; min-height: 22px; }
+.row { display: flex; gap: 8px; align-items: center; } .row button { width: auto; flex: none; } header.row { justify-content: space-between; }
+.hint { color: var(--muted); font-size: 14px; } .error { color: var(--danger); }
+.words { columns: 2; padding-left: 28px; margin: 4px 0; font-weight: 600; }
+.notes { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.notes li { display: flex; flex-direction: column; gap: 8px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+.conflict { border-left: 3px solid var(--danger); padding-left: 10px; display: flex; flex-direction: column; gap: 6px; }
+.confirm { display: flex; flex-direction: column; gap: 8px; } [hidden] { display: none !important; }

@@ -1,53 +1,50 @@
-# Сравнение OCR-движков
+# OCR engine comparison
 
-Стенд этапа 1. Работает локально, фото никуда не отправляются. Сеть нужна только `setup.sh`.
+The stage 1 bench. It runs locally and photos go nowhere. Only `setup.sh` uses the network.
 
 ```sh
-./setup.sh          # один раз
-./run-real.sh       # чеки из samples/receipts/, эталон из samples/receipts/truth/
-node phone/serve.mjs 8099   # замер скорости на телефоне (ниже)
+./setup.sh                  # once
+./run-real.sh               # receipts from samples/receipts/, ground truth from samples/receipts/truth/
+node phone/serve.mjs 8099   # speed test for a phone (see below)
 ```
 
-Показывать можно только `samples/receipts/out/report.json` (и `per_receipt.json`): там флаги и
-проценты без текста чеков. Распознанный текст лежит в `samples/receipts/out/<движок>/` и остаётся на Mac.
+Only `samples/receipts/out/report.json` and `per_receipt.json` are safe to share: they hold flags and percentages,
+no receipt text. Recognized text stays in `samples/receipts/out/<engine>/`.
 
-## Эталон
+## Ground truth
 
-На каждое фото `samples/receipts/<имя>.jpg` нужен `samples/receipts/truth/<имя>.json`. Суммы в грошах.
+Each photo `samples/receipts/<name>.jpg` needs `samples/receipts/truth/<name>.json`. Amounts are in grosze.
 
 ```json
 {
-  "merchant": "Название как на чеке",
+  "merchant": "Name as printed",
   "nip": "1234567890",
   "date": "2026-10-31",
   "total": 19769,
   "items": [
-    {"name": "Название как на чеке", "qty": "1,614", "price": 2183, "value": 3523, "discount": 0}
+    {"name": "Name as printed", "qty": "1,614", "price": 2183, "value": 3523, "discount": 0}
   ]
 }
 ```
 
-## Как считаются метрики
+## Metrics
 
-- `total`, `date`, `nip`: точное совпадение.
-- `merchant`: сходство с одной из первых десяти строк не ниже 0,85.
-- `items`: доля позиций чека, где одновременно верны название (сходство не ниже 0,8 без учёта
-  диакритики), количество, цена и значение.
-- `polish`: доля букв ą ć ę ł ń ó ś ź ż (и заглавных) из эталонных названий, прочитанных точно.
+- `total`, `date`, `nip`: exact match.
+- `merchant`: similarity of at least 0.85 with one of the first ten lines.
+- `items`: share of receipt items where name (similarity of at least 0.8, ignoring diacritics), quantity, price and value are all right.
+- `polish`: share of the letters ą ć ę ł ń ó ś ź ż (and capitals) from the ground truth names that were read exactly.
 
-Парсер в `bench.py` прототипный и нужен только для оценки. Настоящий парсер появится в `core` на этапе 4.
-`raw` означает только выравнивание, `prep` добавляет выравнивание света и растяжку контраста.
+The parser in `bench.py` is a prototype used only for scoring. The real one arrives in `core` at stage 4.
+`raw` means deskewing only, and `prep` adds light flattening and contrast stretching.
 
-## Скорость на телефоне
+## Speed on a phone
 
 ```sh
-BENCH_IMG=<путь к синтетическому чеку> node phone/serve.mjs 8099
+BENCH_IMG=<path to a synthetic receipt> node phone/serve.mjs 8099
 ```
 
-Откройте на телефоне в той же Wi-Fi сети `http://<IP Mac>:8099/?th=1`, затем `?th=4`. Результаты
-появятся в `phone/results.jsonl`. По обычному HTTP браузер считает страницу небезопасной, и потоки
-могут быть недоступны: тогда поле `isolated` будет `false`, а замер `th=4` не считается.
-Для настоящего замера с потоками Android подключается по USB: `adb reverse tcp:8099 tcp:8099`
-и адрес `http://localhost:8099/?th=4`.
+On a phone on the same Wi-Fi network, open `http://<Mac IP>:8099/?th=1`. Results land in `phone/results.jsonl`.
+Over plain HTTP the page is not a secure context, so threads are unavailable and `isolated` is `false`.
+This gives a worst-case single-thread number. A multi-thread number needs HTTPS.
 
-Синтетика (`synth.py`) проверяет только сам стенд. Её результаты не засчитываются в цели ТЗ.
+`synth.py` output only checks the bench itself. It never counts toward the accuracy targets.

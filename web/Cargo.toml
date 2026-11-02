@@ -1,0 +1,30 @@
+[package]
+name = "mm-web"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Offline-first PWA client. All decryption happens here."
+
+[[bin]]
+name = "web"
+path = "src/main.rs"
+
+[dependencies]
+mm-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+base64 = "0.22"
+console_error_panic_hook = "0.1"
+getrandom = { version = "0.3", features = ["wasm_js"] }
+js-sys = "0.3"
+leptos = { version = "0.8", features = ["csr"] }
+rexie = "0.6"
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+zeroize = "1"
+web-sys = { version = "0.3", features = [
+  "AesKeyGenParams", "AesGcmParams", "Crypto", "CryptoKey", "CredentialCreationOptions", "CredentialRequestOptions", "CredentialsContainer", "Document", "Event", "EventTarget",
+  "Headers", "Navigator", "Request", "RequestCredentials", "RequestInit", "Response", "SubtleCrypto", "VisibilityState", "Window",
+] }

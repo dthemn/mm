@@ -1,4 +1,4 @@
-# Реальные чеки и выписки никогда не попадают в репозиторий
+# Real receipts and statements never enter the repository
 /samples/
 /target/
 **/.cache/
@@ -7,3 +7,4 @@
 tools/ocr-bench/out/
 .DS_Store
 tools/ocr-bench/phone/results.jsonl
+web/dist/

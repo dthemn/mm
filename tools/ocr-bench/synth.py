@@ -1,8 +1,8 @@
-"""Генератор СИНТЕТИЧЕСКИХ польских чеков для проверки самого стенда.
+"""Generator of SYNTHETIC Polish receipts for checking the bench itself.
 
-Это не замена реальным фото: печать, бумага и камера здесь искусственные.
-Результаты по синтетике нельзя засчитывать в цели из ТЗ.
-Все магазины, NIP и товары выдуманы.
+This does not replace real photos: print, paper and camera are all artificial.
+Synthetic results never count toward the project's accuracy targets.
+All shops, NIPs and products are made up.
 
     python synth.py OUT_DIR [--n 24] [--seed 7]
 """
@@ -117,7 +117,7 @@ def render(truth, addr, lines, ptu_lines, rng):
 
 
 def degrade(img, level, rng):
-    """level: 0 чисто, 1 фото, 2 выцветший/мятый."""
+    """level: 0 clean, 1 photo, 2 faded or crumpled."""
     np_rng = np.random.default_rng(rng.randint(0, 2**31))
     bg = 200 if level else 235
     canvas = Image.new("L", (img.width + 200, img.height + 200), bg - 90 if level else bg)
@@ -127,10 +127,10 @@ def degrade(img, level, rng):
         canvas = canvas.filter(ImageFilter.GaussianBlur(0.6 * level))
     a = np.asarray(canvas, dtype=np.float32)
     if level >= 2:
-        a = 255 - (255 - a) * rng.uniform(0.35, 0.55)  # выцветшая термобумага
+        a = 255 - (255 - a) * rng.uniform(0.35, 0.55)  # faded thermal paper
         xx = np.linspace(0, 1, a.shape[1])[None, :]
         yy = np.linspace(0, 1, a.shape[0])[:, None]
-        a = a * (0.72 + 0.28 * (xx * 0.6 + yy * 0.4))  # неравномерный свет
+        a = a * (0.72 + 0.28 * (xx * 0.6 + yy * 0.4))  # uneven light
     if level:
         a = a + np_rng.normal(0, 4 * level, a.shape)
     out = Image.fromarray(np.clip(a, 0, 255).astype(np.uint8))

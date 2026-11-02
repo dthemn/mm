@@ -1,14 +1,14 @@
-"""Сравнение OCR-движков на чеках. Всё работает локально, сеть не используется.
+"""Compares OCR engines on receipts. Everything runs locally, no network is used.
 
     python bench.py IMAGES_DIR --truth TRUTH_DIR --out OUT_DIR [--engines tess_fast,tess_best,ppocr,ocrs]
 
-IMAGES_DIR: фото чеков. TRUTH_DIR: <имя>.json с эталоном (формат в README).
-Без эталона считаются только скорость и доля чеков, где найден итог.
+IMAGES_DIR: receipt photos. TRUTH_DIR: <name>.json ground truth (format in README).
+Without ground truth only speed is measured.
 
-Приватность: распознанный текст пишется только в OUT_DIR/<движок>/*.txt.
-В stdout и report.json нет текста чеков, только флаги и агрегаты, поэтому
-отчёт можно показывать. Для реальных чеков держите OUT_DIR внутри samples/.
-Парсер здесь прототипный и нужен только для оценки по целям из ТЗ.
+Privacy: recognized text is written only to OUT_DIR/<engine>/*.txt.
+stdout and report.json hold no receipt text, only flags and aggregates, so
+the report is safe to share. For real receipts keep OUT_DIR inside samples/.
+The parser here is a prototype, used only to score the accuracy targets.
 """
 import argparse
 import difflib
@@ -26,7 +26,7 @@ import numpy as np
 from PIL import Image, ImageFilter, ImageOps
 from pillow_heif import register_heif_opener
 
-register_heif_opener()  # фото с iPhone
+register_heif_opener()  # iPhone photos
 
 ROOT = Path(__file__).parent
 CACHE = ROOT / ".cache"
@@ -34,11 +34,11 @@ PL = set("ąćęłńóśźżĄĆĘŁŃÓŚŹŻ")
 IMG_EXT = {".jpg", ".jpeg", ".png", ".heic", ".webp"}
 
 
-# ---------- предобработка ----------
+# ---------- preprocessing ----------
 def deskew(g):
     small = g.copy()
     small.thumbnail((700, 700))
-    # Ищем наклон по штрихам текста, а не по тёмному фону вокруг чека
+    # Detect skew from text strokes, not from the dark background around the receipt
     bg = np.asarray(small.filter(ImageFilter.GaussianBlur(12)), dtype=np.float32) + 1
     ink = np.asarray(small, dtype=np.float32) / bg < 0.82
     pad = int(min(small.size) * 0.08)
@@ -56,7 +56,7 @@ def deskew(g):
 def preprocess(path, binarize):
     g = ImageOps.exif_transpose(Image.open(path)).convert("L")
     g.thumbnail((2400, 2400))
-    # Выравнивание нужно всем: иначе колонка цен съезжает на соседнюю строку
+    # Every engine needs deskewing: otherwise the price column slides onto the next line
     g = deskew(g)
     if not binarize:
         return g
@@ -64,8 +64,8 @@ def preprocess(path, binarize):
         g = g.resize((g.width * 2, g.height * 2), Image.LANCZOS)
     g = g.filter(ImageFilter.MedianFilter(3))
     a = np.asarray(g, dtype=np.float32)
-    # Выравнивание света делением на фон, затем растяжка контраста.
-    # Полутона сохраняем: жёсткий порог съедает штрихи бледной термопечати.
+    # Flatten the light by dividing by the background, then stretch the contrast.
+    # Keep gray levels: a hard threshold eats the strokes of faint thermal print.
     bg = np.asarray(g.filter(ImageFilter.GaussianBlur(35)), dtype=np.float32) + 1
     r = a / bg
     lo, hi = np.percentile(r, 1.5), np.percentile(r, 60)
@@ -73,9 +73,9 @@ def preprocess(path, binarize):
     return Image.fromarray(out)
 
 
-# ---------- движки ----------
+# ---------- engines ----------
 def run_tesseract(images, outdir, model):
-    """Настоящий WASM-сборка tesseract-wasm под node: время близко к браузеру."""
+    """The real tesseract-wasm WASM build under node, so timing is close to a browser."""
     work = outdir / "_raw"
     work.mkdir(parents=True, exist_ok=True)
     jobs = []
@@ -100,7 +100,7 @@ def run_tesseract(images, outdir, model):
 
 
 def boxes_to_lines(items):
-    """items: (x0, y0, y1, text). Склейка блоков одной строки по перекрытию по Y."""
+    """items: (x0, y0, y1, text). Joins blocks of one line by their Y overlap."""
     items = sorted(items, key=lambda t: (t[1] + t[2]) / 2)
     rows = []
     for it in items:
@@ -160,9 +160,9 @@ def run_ocrs(images, outdir):
     return times
 
 
-# ---------- прототип парсера ----------
+# ---------- prototype parser ----------
 MONEY = r"(-?\d{1,6}[,.]\s?\d{2})"
-# Реальные форматы: "1 op * 12,00 = 12,00 B", "1pcs * 5,00 5,00 A", "3 * 8,00 24,00 A"
+# Real formats: "1 op * 12,00 = 12,00 B", "1pcs * 5,00 5,00 A", "3 * 8,00 24,00 A"
 ITEM = re.compile(
     r"(?P<name>.*?)\s*(?<![\d,.])(?P<qty>\d+(?:[,.]\d{1,3})?)\s*(?:szt\.?|op\.?|pcs|kg)?\s*"
     r"[xX×*]\s*(?P<price>\d+[,.]\d{2})\s*=?\s*"
@@ -188,7 +188,7 @@ def sim(a, b):
 
 
 def parse(text):
-    # OCR часто вставляет пробел внутрь суммы: "3, 97" -> "3,97"
+    # OCR often puts a space inside an amount: "3, 97" -> "3,97"
     text = re.sub(r"(\d[,.])\s(\d\d)(?!\d)", r"\1\2", text)
     lines = [l.strip() for l in text.splitlines() if l.strip()]
     out = dict(total=None, date=None, nip=None, items=[], head=lines[:10])
@@ -214,7 +214,7 @@ def parse(text):
         m = ITEM.match(l)
         if m:
             name = m["name"].strip()
-            # Пустое имя или код товара: настоящее название строкой выше
+            # Empty name or a product code: the real name is on the line above
             if not name or re.fullmatch(r"[\d\s]+", name):
                 name = prev
             out["items"].append(dict(
@@ -243,7 +243,7 @@ def score(text, t):
             pool.remove(best)
     r["items_ok"], r["items_n"] = ok, len(t["items"])
     r["items_extra"] = len(pool)
-    # Польские буквы: выравниваем эталонные строки по лучшей строке OCR
+    # Polish letters: align the ground truth lines with the best OCR line
     seen = hit = 0
     lines = [l for l in text.splitlines() if l.strip()]
     for s in [t["merchant"]] + [i["name"] for i in t["items"]]:
@@ -286,12 +286,12 @@ def main():
     for p in sorted(p for p in a.images.iterdir() if p.suffix.lower() in IMG_EXT):
         h = hashlib.sha256(p.read_bytes()).digest()
         if h in seen_hash:
-            print(f"пропущен дубль: {p.name}")
+            print(f"skipped duplicate: {p.name}")
             continue
         seen_hash.add(h)
         files.append(p)
     if not files:
-        sys.exit(f"нет изображений в {a.images}")
+        sys.exit(f"no images in {a.images}")
     report = dict(n_images=len(files), results={})
     for variant, binar in (("raw", False), ("prep", True)):
         t0 = time.perf_counter()
@@ -310,7 +310,7 @@ def main():
             elif eng == "ocrs":
                 times = run_ocrs(images, d)
             else:
-                sys.exit(f"неизвестный движок {eng}")
+                sys.exit(f"unknown engine {eng}")
             rows, per = [], {}
             for name in images:
                 tp = a.truth / f"{name}.json" if a.truth else None

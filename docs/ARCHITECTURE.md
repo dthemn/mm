@@ -1,124 +1,147 @@
-# Архитектура и модель угроз
+# Architecture and threat model
 
-Статус: этап 1 на проверке. Предварительный выбор OCR: PP-OCR v5 mobile (latin), подтверждён только на 3 реальных чеках.
+Status: stages 1 and 2. The OCR choice is provisional: PP-OCR v5 mobile, confirmed on only 3 real receipts.
 
-Решения владельца (2026-11-01):
-- Ежедневный вход только по passkey. 12 слов нужны как резервный способ при потере passkey.
-- У каждого члена семьи отдельный аккаунт и свой DEK, общих данных и общего ключа нет.
+Owner decisions:
 
-## 1. Компоненты
+- Daily sign-in uses only the passkey. The 12 words are a backup for a lost passkey.
+- Each family member has a separate account and DEK. There is no shared data or shared key.
+
+## 1. Components
 
 ```
-Телефон (PWA)                                     VPS в ЕС
-┌───────────────────────────────────┐            ┌───────────────────────┐
-│ web: Leptos CSR, service worker   │            │ Caddy: TLS, HSTS      │
-│ core (WASM): модели, крипто,      │  HTTPS     │ server: Axum, sqlx    │
-│   парсеры, категории, дедупликация│ ─────────► │ PostgreSQL: шифротекст│
-│ OCR-воркер (движок по этапу 1)    │ шифротекст │ и служебные метаданные│
-│ OPFS/IndexedDB: шифротекст, очередь│           └───────────────────────┘
-└───────────────────────────────────┘
+Phone (PWA)                                     VPS in the EU
+┌────────────────────────────────────┐         ┌───────────────────────┐
+│ web: Leptos CSR, service worker    │         │ Caddy: TLS, HSTS      │
+│ core (WASM): crypto, merge, sync   │  HTTPS  │ server: Axum, sqlx    │
+│ OCR worker (stage 4)               │ ──────► │ PostgreSQL: ciphertext│
+│ IndexedDB: ciphertext and queue    │         │ and minimal metadata  │
+└────────────────────────────────────┘         └───────────────────────┘
 ```
 
-Весь разбор, аналитика и дедупликация идут на клиенте. У сервера нет кода, который умеет читать записи.
+All parsing, analytics and deduplication run on the client. The server has no code able to read records.
 
-## 2. Ключи
+## 2. Keys
 
-| Ключ | Откуда | Где живёт |
+| Key | Source | Where it lives |
 |---|---|---|
-| DEK, 256 бит | случайный, при регистрации | только в памяти клиента; на сервере две обёрнутые копии |
-| KEK_prf | HKDF(выход WebAuthn PRF, info `mm/v1/kek/prf`) | вычисляется при входе |
-| KEK_phrase | HKDF(энтропия BIP39, info `mm/v1/kek/phrase`) | вычисляется при восстановлении |
-| Ключ входа по фразе | HKDF(энтропия BIP39, info `mm/v1/auth/phrase`), пара Ed25519 | на сервере только публичная часть |
+| DEK, 256 bits | random, at registration | client memory only; the server holds wrapped copies |
+| KEK_prf | HKDF(WebAuthn PRF output, info `mm/v1/kek/prf`) | derived at sign-in |
+| KEK_phrase | HKDF(BIP39 entropy, info `mm/v1/kek/phrase`) | derived during recovery |
+| Phrase login key | HKDF(BIP39 entropy, info `mm/v1/auth/phrase`), P-256 ECDSA | the server has only the public part |
 
-- Разные `info` делают ключи независимыми: публичный ключ и подпись ничего не говорят о KEK_phrase.
-- 12 слов дают 128 бит энтропии, поэтому эффективная стойкость копии DEK под фразой равна 128 битам.
-  Этого достаточно. HKDF без растяжения здесь допустим только потому, что фраза случайна:
-  пользовательские фразы не принимаются.
-- Обёрнутый DEK сервер отдаёт только после успешной аутентификации.
-- Ограничение: `zeroize` очищает память Rust/WASM, но выход PRF проходит через JS и браузер,
-  где гарантированной очистки нет. Очистка уменьшает окно риска, но не устраняет его.
+- Different `info` values make the keys independent: the public key and signatures reveal nothing about KEK_phrase.
+- 12 words carry 128 bits of entropy, so the DEK copy under the phrase has 128-bit strength. This is enough.
+  HKDF without stretching is acceptable only because the phrase is random, so user-chosen phrases are never accepted.
+- P-256 from RustCrypto is used instead of Ed25519 to stay within the vetted crate list.
+- The PRF salt is the same for the whole app, because the user is unknown during username-less login.
+  This is safe: each passkey produces its own PRF output.
+- Each passkey has its own wrapped DEK copy. The server returns a copy only after authentication.
+- The PRF output never leaves the device. An e2e test checks this on the actual requests.
+- `webauthn-rs` has no PRF support, so the browser code adds the extension. It also requests a discoverable
+  passkey, which allows login on a new device without a username.
+- Limitation: `zeroize` clears Rust and WASM memory, but the PRF output passes through JavaScript and the browser,
+  where clearing is not guaranteed. Plaintext shown on screen is in the same position. Clearing shortens the
+  exposure window but does not remove it.
 
-Режимы входа:
+Sign-in modes:
 
-- Обычный: passkey с PRF разворачивает DEK, фраза не нужна.
-- Потеря passkey: фраза подтверждает вход, разворачивает DEK, затем регистрируется новый passkey.
-- Устройство с passkey без PRF: фраза вводится один раз при подключении устройства. DEK сохраняется локально,
-  обёрнутый неизвлекаемым ключом WebCrypto, дальше вход идёт по passkey. Ограничение: такую копию защищает браузер,
-  а не биометрия, поэтому на этом устройстве код с доступом к профилю браузера может её развернуть.
+- Normal: a passkey with PRF unwraps the DEK. No phrase is needed.
+- Offline: a local WebAuthn request produces the PRF output, which unwraps a locally cached copy of the wrapped DEK.
+  No signature is verified, and the proof is that decryption succeeds.
+- Lost passkey: the phrase signs in and unwraps the DEK, then the user registers a new passkey.
+- Passkey without PRF: the phrase is entered once when linking the device. The DEK is then stored locally under a
+  non-extractable WebCrypto key, and later sign-ins use the passkey. This is weaker: the browser protects that copy,
+  not the biometric check, so code with access to the browser profile could unwrap it.
 
-## 3. Запись и синхронизация
+Adding a passkey requires a phrase signature in addition to a session, so a stolen cookie is not enough.
+
+## 3. Records and sync
 
 ```
-на сервере: user_id, record_id (случайный), revision, size, updated_at, blob
-blob:       format_version | nonce (24 байта) | ciphertext
-AAD:        user_id | record_id | schema_version | revision
-plaintext:  тип записи, данные, паддинг до размера корзины (1, 2, 4, 8, 16, 32 КиБ и далее)
+server:     user_id, record_id (random), revision, seq, size, updated_at, blob
+blob:       format_version | nonce (24 bytes) | ciphertext
+AAD:        label | user_id | record_id | schema_version | revision
+plaintext:  kind, data, conflicts, padded to a bucket (1, 2, 4, 8 KiB and so on, up to 1 MiB)
 ```
 
-- Отступление от ТЗ в сторону усиления: в AAD добавлен `revision`. Без него сервер мог бы незаметно вернуть
-  старую, но валидную версию записи. Это тоже подмена.
-- Зашифрованный манифест (карта `record_id → revision`) позволяет заметить откат и удаление записей сервером.
-- Запись на сервер идёт как compare-and-swap: клиент присылает ожидаемый `revision`, при несовпадении получает 409.
-- Очередь изменений хранится уже зашифрованной, поэтому отправка не требует ключа и работает после блокировки.
-- Запись удаляется из очереди только после подтверждения сервера.
-- Конфликт: трёхстороннее слияние по полям. Если одно поле изменено на двух устройствах, сохраняются обе версии,
-  а операция попадает в заметный список «Конфликты». Удаление хранится как надгробие.
+- `revision` in the AAD goes beyond the original requirement. Without it the server could return an old but valid
+  version of a record, which is also a substitution.
+- An encrypted manifest (`record_id → revision`) reveals rollbacks and hidden records. A device also rejects any
+  revision below what it already knows. A device with no history that sees a consistently rolled-back server cannot
+  detect it, because the manifest itself has no external anchor.
+- Writes are compare-and-swap: the client sends the expected revision. Locking the user row makes `seq` strictly ordered,
+  so a reader cannot miss a change.
+- The queue is already encrypted, so sending it needs no key after locking.
+- An edit leaves the queue only after the server confirms it. A repeated write after a lost response is idempotent.
+- An edit made during a push is kept and re-encrypted for the next revision.
+- Conflicts use a three-way merge by field. If both devices changed one field, both versions are kept and the record
+  shows a visible choice. Delete against edit keeps the edit and asks the user. Deletes are tombstones inside the ciphertext.
+- `updated_at` is rounded to the hour. Web Locks serialize local writes across tabs.
 
-## 4. Модель угроз
+Known gaps:
 
-| Кто / что | Что получает | Защита | Остаточный риск |
+- Restoring a database backup lowers `seq` below the devices' cursors, so devices would miss later changes.
+  A restore epoch is needed before backups ship in stage 6.
+- A second open tab blocks erasing the local database until that tab closes.
+
+## 4. Threat model
+
+| Actor or event | What they get | Protection | Residual risk |
 |---|---|---|---|
-| Утечка БД или бэкапа | шифротекст, размеры, время | E2EE, паддинг | видны число записей и ритм активности |
-| Админ/root VPS, только чтение | то же плюс IP в логах | логи без содержимого, короткое хранение | метаданные |
-| Root VPS, активный | может подменить фронтенд | CSP, SRI, воспроизводимая сборка | **полностью не устраняется**, код получит ключ; см. README |
-| Сервер откатывает или прячет записи | старые записи | `revision` в AAD, манифест | обнаружение, не предотвращение |
-| Перехват сети | ничего полезного | HTTPS, HSTS | компрометация УЦ |
-| XSS в приложении | ключ в памяти | строгий CSP без inline-скриптов, CSR без чужого HTML | `wasm-unsafe-eval` обязателен для WASM |
-| Вредоносная зависимость | ключ в памяти | `cargo audit`, `cargo deny`, Cargo.lock, минимум JS | доверие к авторам крейтов |
-| Подмена модели OCR | вредоносные данные в парсер | SHA-256 модели зашит в сборку | нет |
-| Украденный заблокированный телефон | локальный шифротекст | ключ только в памяти, таймаут | на устройствах с PRF только шифротекст; без PRF защита слабее (раздел 2) |
-| Украденный разблокированный телефон | данные до таймаута | автоблокировка | короткое окно |
-| Брутфорс входа | ничего | rate limit, 128 бит у фразы | нет |
-| Посторонний регистрируется на сервере | место на диске | регистрация только по инвайту | нет |
-| NBP видит запросы курсов | IP и период | запрашивать курсы кварталами, а не на дату операции | IP виден NBP |
-| Потеря passkey и 12 слов | полная потеря данных | предупреждение и проверка записи фразы | **намеренно необратимо** |
+| Database or backup leak | ciphertext, sizes, hourly times | E2EE, padding | record count and activity rhythm |
+| VPS admin, read-only | same, plus IP addresses in logs | logs without content, short retention | metadata |
+| VPS root, active | can replace the frontend | CSP, SRI, reproducible build | **cannot be fully removed**, the code would get the key |
+| Server rolls back or hides records | old records | `revision` in AAD, manifest | detection, not prevention |
+| Network interception | nothing useful | HTTPS, HSTS | a compromised CA |
+| XSS in the app | the key in memory | strict CSP with no inline scripts | `wasm-unsafe-eval` is required for WASM |
+| Malicious dependency | the key in memory | `cargo audit`, `cargo deny`, Cargo.lock, minimal JS | trust in crate authors |
+| Tampered OCR model | hostile input to the parser | SHA-256 pinned in the build (stage 4) | none |
+| Stolen locked phone | local ciphertext | key only in memory, idle lock | with PRF only ciphertext; without PRF weaker (section 2) |
+| Stolen unlocked phone | data until the timeout | lock after 5 minutes idle or 1 minute hidden | a short window |
+| Login brute force | nothing | rate limit, 128-bit phrase | none |
+| Stranger registers | disk space | invite-only registration, invite stored as a hash | none |
+| NBP sees rate requests | IP and period | request quarters, not transaction dates | NBP sees the IP |
+| Loss of passkey and 12 words | total data loss | warning and written-copy check | **irreversible by design** |
 
-Удаление аккаунта стирает данные из БД сразу, из зашифрованных бэкапов они уходят после истечения срока хранения копий.
+Deleting an account removes it from the database at once. It leaves encrypted backups when those expire.
 
-## 5. Распознавание чеков
+## 5. Receipt recognition
 
-Конвейер из ТЗ без изменений. Предварительные результаты на 3 реальных чеках из разных магазинов. PP-OCR и Tesseract с предобработкой, `ocrs` без неё:
+Pipeline: camera, preprocessing, on-device OCR, parsing, categorization, review screen, encryption and saving.
+Early results on 3 real receipts. PP-OCR and Tesseract use preprocessing, `ocrs` does not.
 
 | | PP-OCR v5 | Tesseract (`pol_best`) | `ocrs` |
 |---|---|---|---|
 | SUMA PLN | 3/3 | 1/3 | 3/3 |
-| Дата | 3/3 | 3/3 | 2/3 |
-| Магазин | 3/3 | 2/3 | 1/3 |
-| Позиции целиком | 7/8 | 1/8 | 0/8 |
-| Польские буквы в контрольных словах | 4/26 | 18/26 | 0/26 |
+| Date | 3/3 | 3/3 | 2/3 |
+| Merchant | 3/3 | 2/3 | 1/3 |
+| Whole line items | 7/8 | 1/8 | 0/8 |
+| Polish letters, control words | 4/26 | 18/26 | 0/26 |
 
-Вывод: у PP-OCR верны все суммы и количества, слабое место только текст: польские буквы и `w`, прочитанная как `u`.
-Названия поэтому должны проходить через словарь и сравниваться без диакритики. Выборка мала, и парсер настраивался на этих же чеках.
+PP-OCR got every amount and quantity right. Its weakness is text: Polish letters, and `w` read as `u`.
+Names must therefore go through a dictionary and be compared without diacritics. The sample is small, and the
+prototype parser was tuned on these same receipts.
 
-Что уже проверено и влияет на архитектуру:
+Findings that affect the design:
 
-- Наклон нужно определять по штрихам текста: тёмный стол вокруг чека сбивает простой детектор.
-- Строки надо собирать по координатам: цены часто распознаются отдельной колонкой.
-- Жёсткий порог бинаризации съедает бледную печать, выравнивание света с полутонами работает лучше.
-- Проверка `количество × цена = значение` и `сумма позиций = SUMA PLN` нужна и как детектор ошибок OCR.
-- Форматы позиций различаются по кассам: имя и цены в одной строке, цены строкой ниже, код товара между ними.
-- Текст с соседней колонки может попасть в название (например, `PARAGON FISKALNY`), нужна проверка геометрии строки.
-- На фото есть рука и посторонние предметы, поэтому обрезка по границам чека обязательна.
+- Detect skew from text strokes, because a dark table around the receipt misleads a simple detector.
+- Assemble lines from coordinates, because prices often come back as a separate column.
+- A hard binarization threshold destroys faint print. Flattening the light and keeping gray levels works better.
+- `quantity × price = value` and `item sum = SUMA PLN` also act as OCR error detectors.
+- Item formats vary by cash register: all on one line, prices on the next line, or a product code in between.
+- Text from a neighboring column can end up in a name, so line geometry must be checked.
+- Photos include hands and other objects, so cropping to the receipt edges is required.
+- Neither Tesseract nor ONNX Runtime is Rust, so OCR is an exception to "Rust everywhere" unless `rten` can run PP-OCR.
 
-## 6. Как принимается решение по OCR
+## 6. How the OCR decision is made
 
-1. Чеки делятся на две части до настройки: примерно 2/3 для разработки, 1/3 контрольная.
-   Цели ТЗ считаются только на контрольной части, иначе парсер просто подгонится под выборку.
-2. При 30–50 чеках одна ошибка меняет результат на 2–3 п.п., поэтому 95% здесь примерно равно
-   «не больше одной ошибки на контрольной части».
-3. Побеждает движок, который проходит цели с постобработкой. Среди прошедших выбирается меньший и более быстрый на Android.
+1. Split the receipts before tuning: about 2/3 for development and 1/3 held out.
+   The accuracy targets count only on the held-out part, otherwise the parser just fits the sample.
+2. With 30 to 50 receipts one error moves the result by 2 to 3 points, so 95% means about one error on the held-out part.
+3. The winner passes the targets after post-processing. Among those that pass, choose the smaller and faster one on Android.
 
-## 7. Что проверяется только на устройствах
+## 7. What only real devices can verify
 
-PRF, установка на домашний экран, камера, безопасные зоны и офлайн-режим проверяются на реальных iPhone и Android.
-Эмулятор и настольный Chrome эти проверки не заменяют.
+PRF, home screen install, camera, safe areas and offline mode must be checked on real iPhones and Android phones.
+Chrome's virtual authenticator and a desktop browser do not replace those checks.

@@ -1,4 +1,4 @@
-// Запуск tesseract-wasm под node: node tess_wasm.mjs jobs.json model.traineddata outdir
+// Runs tesseract-wasm under node: node tess_wasm.mjs jobs.json model.traineddata outdir
 import { createRequire } from "node:module";
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -18,7 +18,7 @@ for (const j of JSON.parse(readFileSync(jobsPath, "utf8"))) {
   const data = new Uint8ClampedArray(readFileSync(j.path));
   const t = performance.now();
   engine.loadImage({ data, width: j.w, height: j.h });
-  // Слова с координатами: строки собирает bench.py одинаково для всех движков
+  // Words with coordinates: bench.py assembles lines the same way for all engines
   const words = engine.getTextBoxes("word");
   times[j.name] = (performance.now() - t) / 1000;
   writeFileSync(

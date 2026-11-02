@@ -1,4 +1,4 @@
-// node phone/serve.mjs [порт] [--once]: раздаёт страницу замера, результаты пишет в phone/results.jsonl
+// node phone/serve.mjs [port] [--once]: serves the speed test page, writes results to phone/results.jsonl
 import { createServer } from "node:http";
 import { createReadStream, existsSync, appendFileSync, statSync } from "node:fs";
 import { dirname, join, normalize, extname } from "node:path";

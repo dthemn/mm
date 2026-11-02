@@ -1,5 +1,5 @@
 #!/bin/sh
-# Ставит движки и модели в .cache (папка в .gitignore). Сеть нужна только здесь.
+# Installs engines and models into .cache (git-ignored). Only this step uses the network.
 set -eu
 cd "$(dirname "$0")"
 mkdir -p .cache/models
