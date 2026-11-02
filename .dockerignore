@@ -1,0 +1,9 @@
+# Real receipts and statements must never enter an image.
+samples
+target
+web/dist
+e2e
+tools
+docs
+.git
+**/.DS_Store

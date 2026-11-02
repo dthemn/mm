@@ -38,10 +38,60 @@ The main flow: photograph a receipt, and the app handles the rest on the device.
 Records are encrypted with XChaCha20-Poly1305. The user id, record id, schema version and revision are bound
 as AAD, so the server cannot swap records or quietly restore an old version.
 
+## Run it locally
+
+The only requirement is [Docker](https://www.docker.com/products/docker-desktop/) and a desktop browser.
+
+**1. Start the app and its database.** The first build takes several minutes.
+
+```sh
+git clone https://github.com/dthemn/mm.git
+cd mm
+docker compose up --build -d
+```
+
+**2. Create an invite.** Registration works only with an invite, and each one can be used once.
+
+```sh
+docker compose exec app mm-server invite
+```
+
+**3. Open <http://localhost:8080>**, choose **Create account** and paste the invite.
+You will get 12 words to write down, then create a passkey with your device's fingerprint or password.
+
+For a fresh invite, repeat step 2. Useful commands:
+
+```sh
+docker compose logs -f app   # server logs, which never contain record contents
+docker compose down          # stop the app and keep the data
+docker compose up -d         # start it again
+docker compose down -v       # stop the app and erase all data
+docker compose up --build -d # rebuild after changing the code
+```
+
+Notes:
+
+- This setup is for testing on one computer. Its database password is not a secret, and ports open only on `localhost`.
+  It is not a production deployment.
+- Use the exact address `http://localhost:8080`, because passkeys are tied to the site name.
+  `127.0.0.1` will not work.
+- A phone cannot use this setup: passkeys there need a real domain with HTTPS.
+- If your browser or password manager offers no passkey that supports PRF, the app still works, and shows
+  "Passkey encryption: off" in Settings. Automated tests use a virtual passkey in Chrome. Testing with a real
+  fingerprint is still pending.
+- If port 8080 is taken, stop the other program. The port is also part of `ORIGIN` in `compose.yml`.
+
+To check that a running app works, using Chrome with a virtual passkey:
+
+```sh
+(cd e2e && npm install)
+INVITE=$(docker compose exec -T app mm-server invite) node e2e/smoke.mjs
+```
+
 ## Development
 
 Requires Rust with the `wasm32-unknown-unknown` target, `wasm-bindgen-cli` matching the version in `Cargo.lock`,
-Docker, Node.js and Chrome.
+Docker, Node.js and Chrome. The tests use a separate throwaway database from `compose.dev.yml`.
 
 ```sh
 docker compose -f compose.dev.yml up -d
@@ -54,17 +104,6 @@ cargo build -p mm-server
 (cd e2e && npm install)
 node e2e/run.mjs
 ```
-
-To run the app locally:
-
-```sh
-export DATABASE_URL=postgres://mm:mm-dev@127.0.0.1:55432/mm
-export RP_ID=localhost ORIGIN=http://localhost:8080 STATIC_DIR=web/dist
-cargo run -p mm-server -- invite    # prints an invite code
-cargo run -p mm-server
-```
-
-Open <http://localhost:8080>. Registration works only with an invite.
 
 ## Limits of web end-to-end encryption
 
