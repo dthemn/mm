@@ -171,6 +171,18 @@ pub fn verify_phrase_signature(public: &[u8], msg: &[u8], sig: &[u8]) -> Result<
     vk.verify(msg, &sig).map_err(|_| CryptoError::BadSignature)
 }
 
+/// A merchant's record id comes from its name, so offline devices agree on it without
+/// creating duplicates. It is keyed with the DEK because the server sees record ids:
+/// an unkeyed hash would let it test names such as "biedronka" from a dictionary.
+pub fn merchant_id(dek: &Dek, name: &str) -> Uuid {
+    let normalized = Zeroizing::new(crate::model::normalize_name(name));
+    let mut okm = [0u8; 16];
+    Hkdf::<Sha256>::new(Some(b"mm/v1/merchant-id"), dek.expose())
+        .expand(normalized.as_bytes(), &mut okm)
+        .expect("16 bytes is valid for HKDF-SHA256");
+    uuid::Builder::from_random_bytes(okm).into_uuid()
+}
+
 /// Message signed with the phrase key. The purpose is part of the message
 /// so that a login signature cannot be reused to add a passkey.
 pub fn phrase_challenge(purpose: &str, challenge_id: Uuid, nonce: &[u8]) -> Vec<u8> {
@@ -434,6 +446,14 @@ mod tests {
     #[test]
     fn prf_output_too_short_is_rejected() {
         assert!(kek_from_prf(&[1u8; 16]).is_err());
+    }
+
+    #[test]
+    fn merchant_ids_agree_across_devices_but_depend_on_the_secret_key() {
+        let (a, b) = (Dek::generate().unwrap(), Dek::generate().unwrap());
+        assert_eq!(merchant_id(&a, "  ŻABKA  Express"), merchant_id(&a, "żabka express"));
+        assert_ne!(merchant_id(&a, "żabka"), merchant_id(&b, "żabka"));
+        assert_ne!(merchant_id(&a, "żabka"), merchant_id(&a, "lidl"));
     }
 
     #[test]

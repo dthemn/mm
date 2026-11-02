@@ -25,9 +25,12 @@ const type = async (t, s) => {
   await page.waitForSelector(q(t), { timeout: 10000 });
   await page.type(q(t), s);
 };
-const hasNote = () => page.waitForFunction(
-  (s, n) => [...document.querySelectorAll(s)].some((e) => e.value === n), { timeout: 15000 }, q("note-text"), NOTE,
-);
+const hasNote = async () => {
+  await click("nav-ops");
+  await page.waitForFunction(
+    (s, n) => [...document.querySelectorAll(s)].some((e) => e.textContent === n), { timeout: 15000 }, q("tx-title"), NOTE,
+  );
+};
 
 try {
   await page.goto(ORIGIN, { waitUntil: "load" });
@@ -44,8 +47,10 @@ try {
   for (const f of await page.$$(q("confirm-word"))) await f.type(words[await f.evaluate((e) => +e.dataset.pos)]);
   await click("confirm-next");
   await click("create-passkey");
-  await type("draft", NOTE);
-  await click("add");
+  await click("nav-add");
+  await type("f-amount", "12,34");
+  await type("f-merchant", NOTE);
+  await click("f-save");
   await hasNote();
   await page.waitForFunction((s) => document.querySelector(s)?.textContent === "Synced", { timeout: 15000 }, q("status"));
   await page.reload({ waitUntil: "load" });

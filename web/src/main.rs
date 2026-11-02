@@ -3,7 +3,9 @@
 
 mod api;
 mod app;
+mod data;
 mod device;
+mod finance;
 mod flows;
 mod store;
 mod webauthn;

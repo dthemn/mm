@@ -1,12 +1,12 @@
 use crate::api::{ApiFail, Http};
 use crate::flows::{self, LoginResult, Session};
-use crate::{device, store::Kv};
+use crate::data::{self, Data};
+use crate::{device, finance, store::Kv};
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use mm_core::crypto::Phrase;
-use mm_core::record::{Envelope, FIELD_DELETED, FieldConflict};
-use mm_core::sync::{IntegrityIssue, Keys, LocalStore, MANIFEST_ID, SyncError, Syncer, current, save};
-use serde_json::{Value, json};
+use mm_core::date::{Date, Month};
+use mm_core::sync::{IntegrityIssue, Keys, LocalStore, SyncError, Syncer};
 use std::rc::Rc;
 use uuid::Uuid;
 use wasm_bindgen::{JsCast, closure::Closure};
@@ -19,7 +19,7 @@ const SYNC_EVERY_MS: i32 = 30_000;
 const CONFIRM_WORDS: usize = 3;
 
 #[derive(Clone, PartialEq)]
-enum Screen {
+pub enum Screen {
     Loading,
     Welcome,
     Invite,
@@ -30,27 +30,26 @@ enum Screen {
     Locked,
     /// Entering the 12 words. `true`: a device without PRF, the key stays on the device.
     Phrase(bool),
-    Home,
+    Dashboard,
+    Operations,
+    /// None creates a new operation.
+    Edit(Option<Uuid>),
+    Category(Uuid),
     Settings,
-}
-
-#[derive(Clone, PartialEq)]
-struct Note {
-    id: Uuid,
-    text: String,
-    pending: bool,
-    conflicts: Vec<FieldConflict>,
+    Manage(finance::Manage),
+    Export,
 }
 
 #[derive(Clone, Copy)]
-struct Ctx {
-    screen: RwSignal<Screen>,
-    error: RwSignal<String>,
-    busy: RwSignal<bool>,
-    session: RwSignal<Option<Session>, LocalStorage>,
-    notes: RwSignal<Vec<Note>>,
-    status: RwSignal<String>,
-    issues: RwSignal<Vec<String>>,
+pub struct Ctx {
+    pub screen: RwSignal<Screen>,
+    pub error: RwSignal<String>,
+    pub busy: RwSignal<bool>,
+    pub session: RwSignal<Option<Session>, LocalStorage>,
+    pub data: RwSignal<Data>,
+    pub status: RwSignal<String>,
+    pub issues: RwSignal<Vec<String>>,
+    pub filter: finance::FilterState,
     phrase: StoredValue<Option<Rc<Phrase>>, LocalStorage>,
     invite: RwSignal<String>,
     label: RwSignal<String>,
@@ -58,6 +57,11 @@ struct Ctx {
     need_passkey: RwSignal<bool>,
     last_active: StoredValue<f64>,
     hidden_at: StoredValue<Option<f64>>,
+}
+
+pub fn today() -> Date {
+    let d = js_sys::Date::new_0();
+    Date::new(d.get_full_year() as i32, d.get_month() + 1, d.get_date()).unwrap_or(Date { year: 2026, month: 1, day: 1 })
 }
 
 fn now() -> f64 {
@@ -76,7 +80,7 @@ fn lock(c: Ctx) {
             let _ = s.store.close().await;
         });
     }
-    c.notes.set(vec![]);
+    c.data.set(Data::default());
     c.phrase.set_value(None);
     c.issues.set(vec![]);
     c.status.set(String::new());
@@ -84,25 +88,17 @@ fn lock(c: Ctx) {
     c.screen.set(Screen::Locked);
 }
 
-async fn reload(c: Ctx, s: &Session) {
-    let Ok(all) = s.store.all().await else { return };
-    let keys = Keys { user_id: s.user, dek: &s.dek };
-    let mut notes = vec![];
-    for r in all.iter().filter(|r| r.id != MANIFEST_ID) {
-        match current(&keys, r) {
-            Ok(Some(e)) if !e.deleted && e.kind == "note" => notes.push(Note {
-                id: r.id,
-                text: e.data.get("text").and_then(Value::as_str).unwrap_or("").to_string(),
-                pending: r.pending_blob.is_some(),
-                conflicts: e.conflicts,
-            }),
-            Ok(_) => {}
-            Err(_) => c.issues.update(|i| i.push(format!("Record {} cannot be decrypted", r.id))),
+pub async fn reload(c: Ctx, s: &Session) {
+    match data::load(s).await {
+        Ok((d, bad)) => {
+            if c.session.with_untracked(|cur| cur.as_ref().is_some_and(|x| x.user == s.user)) {
+                c.data.set(d);
+                if !bad.is_empty() {
+                    c.issues.update(|i| i.extend(bad.iter().map(|id| format!("Record {id} cannot be decrypted"))));
+                }
+            }
         }
-    }
-    notes.sort_by(|a, b| a.text.cmp(&b.text));
-    if c.session.with_untracked(|cur| cur.as_ref().is_some_and(|x| x.user == s.user)) {
-        c.notes.set(notes);
+        Err(e) => c.error.set(format!("Could not read local data: {e}")),
     }
 }
 
@@ -115,7 +111,7 @@ fn describe(i: &IntegrityIssue) -> String {
     }
 }
 
-async fn run_sync(c: Ctx) {
+pub async fn run_sync(c: Ctx) {
     let Some(s) = c.session.get_untracked() else { return };
     if !online() {
         c.status.set("Offline: changes will be sent when back online".into());
@@ -141,12 +137,12 @@ async fn enter(c: Ctx, s: Session) {
     c.last_active.set_value(now());
     c.session.set(Some(s.clone()));
     c.error.set(String::new());
-    c.screen.set(if c.need_passkey.get_untracked() { Screen::Settings } else { Screen::Home });
+    c.screen.set(if c.need_passkey.get_untracked() { Screen::Settings } else { Screen::Dashboard });
     reload(c, &s).await;
     run_sync(c).await;
 }
 
-fn busy_task<F: Future<Output = Result<(), String>> + 'static>(c: Ctx, f: F) {
+pub fn busy_task<F: Future<Output = Result<(), String>> + 'static>(c: Ctx, f: F) {
     if c.busy.get_untracked() {
         return;
     }
@@ -215,7 +211,8 @@ pub fn App() -> impl IntoView {
         error: RwSignal::new(String::new()),
         busy: RwSignal::new(false),
         session: RwSignal::new_local(None),
-        notes: RwSignal::new(vec![]),
+        data: RwSignal::new(Data::default()),
+        filter: finance::FilterState::new(Month { year: today().year, month: today().month }),
         status: RwSignal::new(String::new()),
         issues: RwSignal::new(vec![]),
         phrase: StoredValue::new_local(None),
@@ -247,10 +244,16 @@ pub fn App() -> impl IntoView {
                 Screen::Passkey => passkey(c).into_any(),
                 Screen::Locked => locked(c).into_any(),
                 Screen::Phrase(remember) => phrase_entry(c, remember).into_any(),
-                Screen::Home => home(c).into_any(),
+                Screen::Dashboard => finance::dashboard(c).into_any(),
+                Screen::Operations => finance::operations(c).into_any(),
+                Screen::Edit(id) => finance::edit(c, id).into_any(),
+                Screen::Category(id) => finance::category(c, id).into_any(),
                 Screen::Settings => settings(c).into_any(),
+                Screen::Manage(m) => finance::manage(c, m).into_any(),
+                Screen::Export => finance::export(c).into_any(),
             }}
         </main>
+        {move || c.session.with(Option::is_some).then(|| finance::nav(c))}
     }
 }
 
@@ -413,104 +416,6 @@ fn phrase_entry(c: Ctx, remember: bool) -> impl IntoView {
     }
 }
 
-async fn write_note(c: Ctx, id: Uuid, env: Envelope) {
-    let Some(s) = c.session.get_untracked() else { return };
-    let keys = Keys { user_id: s.user, dek: &s.dek };
-    match save(&*s.store, &keys, id, &env).await {
-        Ok(()) => {
-            reload(c, &s).await;
-            run_sync(c).await;
-        }
-        Err(e) => c.error.set(format!("Could not save: {e}")),
-    }
-}
-
-async fn stored_env(c: Ctx, id: Uuid) -> Option<Envelope> {
-    let s = c.session.get_untracked()?;
-    let r = s.store.get(id).await.ok()??;
-    current(&Keys { user_id: s.user, dek: &s.dek }, &r).ok()?
-}
-
-fn note_view(c: Ctx, n: Note) -> impl IntoView {
-    let id = n.id;
-    let text = RwSignal::new(n.text.clone());
-    let save_edit = move |_| spawn_local(async move {
-        if let Some(mut e) = stored_env(c, id).await {
-            e.data["text"] = json!(text.get_untracked());
-            write_note(c, id, e).await;
-        }
-    });
-    let remove = move |_| spawn_local(async move {
-        if let Some(mut e) = stored_env(c, id).await {
-            e.deleted = true;
-            write_note(c, id, e).await;
-        }
-    });
-    let conflicts = n.conflicts.into_iter().map(|f| {
-        let (a, b) = (f.field.clone(), f.field.clone());
-        let label = |v: &Value| if f.field == FIELD_DELETED {
-            if v.as_bool() == Some(true) { "deleted".to_string() } else { "kept".to_string() }
-        } else {
-            v.as_str().map(str::to_string).unwrap_or_else(|| v.to_string())
-        };
-        let (mine, theirs) = (label(&f.mine), label(&f.theirs));
-        let pick = move |field: String, keep_theirs: bool| spawn_local(async move {
-            if let Some(mut e) = stored_env(c, id).await {
-                e.resolve(&field, keep_theirs);
-                write_note(c, id, e).await;
-            }
-        });
-        view! {
-            <div class="conflict" data-test="conflict">
-                <p>"This record was changed on two devices. Choose a version:"</p>
-                <button data-test="keep-mine" on:click=move |_| pick(a.clone(), false)>{mine}</button>
-                <button data-test="keep-theirs" on:click=move |_| pick(b.clone(), true)>{theirs}</button>
-            </div>
-        }
-    }).collect_view();
-    view! {
-        <li data-test="note">
-            <input data-test="note-text" prop:value=move || text.get() on:input=move |e| text.set(event_target_value(&e)) />
-            <div class="row">
-                <button data-test="note-save" on:click=save_edit>"Save"</button>
-                <button data-test="note-delete" on:click=remove>"Delete"</button>
-                {n.pending.then(|| view! { <span class="hint" data-test="pending">"waiting to send"</span> })}
-            </div>
-            {conflicts}
-        </li>
-    }
-}
-
-fn home(c: Ctx) -> impl IntoView {
-    let draft = RwSignal::new(String::new());
-    let add = move |_| {
-        let t = draft.get_untracked();
-        if t.trim().is_empty() {
-            return;
-        }
-        draft.set(String::new());
-        spawn_local(write_note(c, Uuid::new_v4(), Envelope::new("note", json!({ "text": t }))));
-    };
-    view! {
-        <header class="row">
-            <h1>"Records"</h1>
-            <button data-test="go-settings" on:click=move |_| c.screen.set(Screen::Settings)>"Settings"</button>
-        </header>
-        <p class="hint" data-test="status">{move || c.status.get()}</p>
-        {move || c.issues.get().into_iter().map(|i| view! { <p class="error" data-test="issue">{i}</p> }).collect_view()}
-        <div class="row">
-            <input data-test="draft" placeholder="New record" prop:value=move || draft.get()
-                on:input=move |e| draft.set(event_target_value(&e)) />
-            <button class="primary" data-test="add" on:click=add>"Add"</button>
-        </div>
-        <ul class="notes">
-            <For each=move || c.notes.get()
-                key=|n| (n.id, n.text.clone(), n.pending, n.conflicts.len())
-                children=move |n| note_view(c, n) />
-        </ul>
-    }
-}
-
 fn settings(c: Ctx) -> impl IntoView {
     let phrase_text = RwSignal::new(String::new());
     let done = RwSignal::new(String::new());
@@ -547,10 +452,14 @@ fn settings(c: Ctx) -> impl IntoView {
     view! {
         <header class="row">
             <h1>"Settings"</h1>
-            <button data-test="go-home" on:click=move |_| c.screen.set(Screen::Home)>"Back"</button>
         </header>
         <p data-test="prf-status">{move || if prf() { "Passkey encryption: on" } else { "Passkey encryption: off, the key is stored on this device" }}</p>
         <button data-test="lock" on:click=move |_| lock(c)>"Lock"</button>
+        <h2>"Data"</h2>
+        <button data-test="manage-categories" on:click=move |_| c.screen.set(Screen::Manage(finance::Manage::Categories))>"Categories"</button>
+        <button data-test="manage-accounts" on:click=move |_| c.screen.set(Screen::Manage(finance::Manage::Accounts))>"Accounts"</button>
+        <button data-test="manage-merchants" on:click=move |_| c.screen.set(Screen::Manage(finance::Manage::Merchants))>"Merchants"</button>
+        <button data-test="go-export" on:click=move |_| c.screen.set(Screen::Export)>"Export data"</button>
         <h2>"New passkey"</h2>
         {move || c.need_passkey.get().then(|| view! { <p class="error" data-test="need-passkey">"Add a new passkey to sign in without the 12 words again."</p> })}
         <p class="hint">"Adding one requires the 12 words."</p>

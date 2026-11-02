@@ -3,10 +3,21 @@
 A personal income and expense tracker for a family in Poland: a mobile web app (PWA) in Rust with end-to-end encryption.
 The main flow: photograph a receipt, and the app handles the rest on the device.
 
-> **Status: early development, not usable for real bookkeeping yet.**
-> Stage 2 of 6 is done: accounts, encryption and sync work, tested in desktop Chrome with a virtual authenticator.
-> Nothing has been tested on a real iPhone or Android phone. The record list is a placeholder for the
-> transactions coming in stage 3. Receipts, imports and the dashboard do not exist yet.
+> **Status: early development.** Stage 3 of 6 is done: you can enter income and expenses by hand and see them on a
+> dashboard. Receipt scanning, statement import and subscriptions do not exist yet, so the camera button opens the
+> manual form for now. Everything was tested in desktop Chrome with a virtual passkey. Nothing has been tested on a
+> real iPhone or Android phone.
+
+## What works today
+
+- Passkey sign-in, a 12-word recovery phrase, and automatic locking.
+- Offline use, with sync across your devices when back online. Conflicts stay visible until you choose a version.
+- Expenses and income with merchant, NIP, account, payment method, note and a separate category for each line item.
+- Foreign-currency operations, with the PLN amount entered by hand for now.
+- A dashboard calculated on the device: balance, spending by category, six-month trend, top merchants, recent operations.
+- Filters by period, account and category. Tapping a category opens its items.
+- Your own categories and accounts, category merging, and merchant editing.
+- Export of all your data to CSV or JSON.
 
 ## Principles
 
@@ -19,7 +30,7 @@ The main flow: photograph a receipt, and the app handles the rest on the device.
 
 | Path | Purpose |
 |---|---|
-| `core/` | Cryptography, record format, three-way merge and sync. Builds natively and to WASM. |
+| `core/` | Money, models, analytics, export, cryptography and sync. Builds natively and to WASM. |
 | `server/` | Axum, sqlx, PostgreSQL. Stores only encrypted records and minimal metadata. |
 | `web/` | Leptos CSR client, IndexedDB storage, WebAuthn PRF, service worker. |
 | `e2e/` | End-to-end tests in Chrome against a real server and database. |

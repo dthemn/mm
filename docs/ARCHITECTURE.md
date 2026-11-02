@@ -1,11 +1,12 @@
 # Architecture and threat model
 
-Status: stages 1 and 2. The OCR choice is provisional: PP-OCR v5 mobile, confirmed on only 3 real receipts.
+Status: stages 1 to 3. The OCR choice is provisional: PP-OCR v5 mobile, confirmed on only 3 real receipts.
 
 Owner decisions:
 
 - Daily sign-in uses only the passkey. The 12 words are a backup for a lost passkey.
 - Each family member has a separate account and DEK. There is no shared data or shared key.
+- The whole app, including its interface, is in English. This replaces the Russian interface of the original requirements.
 
 ## 1. Components
 
@@ -85,7 +86,27 @@ Known gaps:
   A restore epoch is needed before backups ship in stage 6.
 - A second open tab blocks erasing the local database until that tab closes.
 
-## 4. Threat model
+## 4. Finance model
+
+All records live inside the ciphertext. Each is one sync record, so merging works per field.
+
+- Money is an integer number of minor units, and quantities are integer thousandths. There are no floats.
+  Line values round half up to a whole grosz. Every currency is treated as having two decimal places for now.
+- A transaction with line items takes its amount from their sum, so the two cannot disagree on the form.
+  A merge can still combine an amount and items from different devices, and the dashboard then splits the difference
+  so category totals always add up to `amount_pln`.
+- Category shares of a foreign-currency transaction use largest-remainder allocation, which keeps totals exact.
+- Built-in categories and the main account have fixed ids, so devices never create duplicates.
+  Editing one writes a record with the same id.
+- Merging sets `merged_into` instead of rewriting transactions. A device that was offline during the merge can still
+  send the old category id, and it resolves correctly. A merge cycle from two devices is safe but not undone automatically.
+- A merchant id is an HKDF of the normalized name, keyed with the DEK. Devices agree on it offline, and because the
+  server sees record ids, an unkeyed hash would let it test merchant names from a dictionary.
+- Accounts and merchants in use cannot be deleted. Deleting a category means merging it.
+
+Internal transfers, recurring payments and deduplication arrive with statement import, as they depend on it.
+
+## 5. Threat model
 
 | Actor or event | What they get | Protection | Residual risk |
 |---|---|---|---|
@@ -106,7 +127,7 @@ Known gaps:
 
 Deleting an account removes it from the database at once. It leaves encrypted backups when those expire.
 
-## 5. Receipt recognition
+## 6. Receipt recognition
 
 Pipeline: camera, preprocessing, on-device OCR, parsing, categorization, review screen, encryption and saving.
 Early results on 3 real receipts. PP-OCR and Tesseract use preprocessing, `ocrs` does not.
@@ -134,14 +155,14 @@ Findings that affect the design:
 - Photos include hands and other objects, so cropping to the receipt edges is required.
 - Neither Tesseract nor ONNX Runtime is Rust, so OCR is an exception to "Rust everywhere" unless `rten` can run PP-OCR.
 
-## 6. How the OCR decision is made
+## 7. How the OCR decision is made
 
 1. Split the receipts before tuning: about 2/3 for development and 1/3 held out.
    The accuracy targets count only on the held-out part, otherwise the parser just fits the sample.
 2. With 30 to 50 receipts one error moves the result by 2 to 3 points, so 95% means about one error on the held-out part.
 3. The winner passes the targets after post-processing. Among those that pass, choose the smaller and faster one on Android.
 
-## 7. What only real devices can verify
+## 8. What only real devices can verify
 
 PRF, home screen install, camera, safe areas and offline mode must be checked on real iPhones and Android phones.
 Chrome's virtual authenticator and a desktop browser do not replace those checks.
