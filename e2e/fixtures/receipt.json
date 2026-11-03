@@ -1,0 +1,11 @@
+{
+ "merchant": "Sklep Testowy Sp. z o.o.",
+ "nip": "1234563218",
+ "date": "2026-10-31",
+ "total": 3886,
+ "items": [
+  {"name": "Chleb żytni 500g", "qty": "1", "price": 499, "value": 499, "discount": 0},
+  {"name": "Szampon łagodzący 400ml", "qty": "2", "price": 1250, "value": 2500, "discount": 0},
+  {"name": "Mleko 3,2% 1l", "qty": "3", "price": 329, "value": 987, "discount": 100}
+ ]
+}

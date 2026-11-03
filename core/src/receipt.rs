@@ -209,13 +209,18 @@ pub fn parse(input: &[Line]) -> Parsed {
     let header_end = fiscal_at.unwrap_or(HEADER_LINES.min(texts.len()));
     let header = &all[..header_end];
 
-    p.merchant = header.iter().find_map(|l| chain(l)).map(str::to_string).or_else(|| {
-        header.iter()
-            .find(|l| { let f = fold(l); f.contains("sp z o o") || f.contains(" s a") || f.ends_with(" sa") })
-            .or_else(|| header.iter().find(|l| l.chars().filter(|c| c.is_alphabetic()).count() >= 3))
-            .map(|l| l.trim().to_string())
-    });
-    if p.merchant.is_none() {
+    let conf = |i: usize| input.get(i).map(|l| l.confidence).unwrap_or(0.0);
+    let pick = header.iter().position(|l| chain(l).is_some()).map(|i| (i, chain(header[i]).map(str::to_string)))
+        .or_else(|| {
+            header.iter()
+                .position(|l| { let f = fold(l); f.contains("sp z o o") || f.contains(" s a") || f.ends_with(" sa") })
+                .or_else(|| header.iter().position(|l| l.chars().filter(|c| c.is_alphabetic()).count() >= 3))
+                .map(|i| (i, Some(header[i].trim().to_string())))
+        });
+    p.merchant = pick.as_ref().and_then(|x| x.1.clone());
+    // A known chain is trusted. Any other name read with low confidence is shown for review.
+    let trusted = pick.as_ref().is_some_and(|(i, _)| chain(header[*i]).is_some() || conf(*i) >= LOW_CONFIDENCE);
+    if p.merchant.is_none() || !trusted {
         p.doubts.push(Doubt::Merchant);
     }
 
@@ -225,7 +230,11 @@ pub fn parse(input: &[Line]) -> Parsed {
         p.doubts.push(Doubt::Nip);
     }
     (p.date, p.time) = find_date(&all);
-    if p.date.is_none() {
+    let date_line = all.iter().position(|l| {
+        let (d, _) = find_date(std::slice::from_ref(l));
+        d.is_some() && d == p.date
+    });
+    if p.date.is_none() || date_line.is_some_and(|i| conf(i) < LOW_CONFIDENCE) {
         p.doubts.push(Doubt::Date);
     }
     p.receipt_no = all.iter().find_map(|l| {
@@ -235,7 +244,13 @@ pub fn parse(input: &[Line]) -> Parsed {
     // Items: between the fiscal header and the first line of the summary.
     let start = fiscal_at.map(|i| i + 1).unwrap_or(0);
     let end = (start..texts.len()).find(|i| is_footer(&folded[*i], &texts[*i])).unwrap_or(texts.len());
-    let mut last_name_line: Option<String> = None;
+    // A stain or a tight layout can glue the first item name to the fiscal header line.
+    let mut last_name_line: Option<String> = fiscal_at.and_then(|i| {
+        // ASCII lowercasing keeps byte offsets, so the index is valid in the original text.
+        let at = texts[i].to_ascii_lowercase().find("paragon")?;
+        let before = tidy_raw(&texts[i][..at]);
+        (before.chars().filter(|c| c.is_alphabetic()).count() >= 3).then_some(before)
+    });
     for i in start..end {
         let (t, f) = (&texts[i], &folded[i]);
         let low = input[i].confidence < LOW_CONFIDENCE;
@@ -524,6 +539,31 @@ Karta 27,00
         let mut l = lines(INLINE);
         l[3].confidence = 0.5;
         assert!(parse(&l).doubts.contains(&Doubt::Item(0)));
+    }
+
+    #[test]
+    fn a_merchant_read_with_low_confidence_is_doubtful() {
+        let mut l = lines(INLINE);
+        l[0].confidence = 0.45;
+        assert!(parse(&l).doubts.contains(&Doubt::Merchant));
+        let mut l = lines("Biedronka\nPARAGON FISKALNY");
+        l[0].confidence = 0.45;
+        assert!(!parse(&l).doubts.contains(&Doubt::Merchant), "a known chain is trusted");
+    }
+
+    #[test]
+    fn a_date_read_with_low_confidence_is_doubtful() {
+        let mut l = lines(INLINE);
+        let last = l.len() - 1;
+        l[last].confidence = 0.5;
+        assert!(parse(&l).doubts.contains(&Doubt::Date));
+    }
+
+    #[test]
+    fn an_item_name_glued_to_the_fiscal_header_is_kept() {
+        let p = parse(&lines("Sklep\nProdukty drogery PARAGON FISKALNY nr wydr. 41/12\n355110015610000\n1pcs * 5,00 5,00 A\nSUMA PLN 5,00"));
+        assert_eq!(p.items[0].raw_name, "Produkty drogery");
+        assert_eq!(p.receipt_no.as_deref(), Some("41/12"));
     }
 
     #[test]

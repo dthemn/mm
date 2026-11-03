@@ -1,6 +1,6 @@
 # Architecture and threat model
 
-Status: stages 1 to 3. The OCR choice is provisional: PP-OCR v5 mobile, confirmed on only 3 real receipts.
+Status: stages 1 to 4. Receipt recognition uses PP-OCR v5 mobile and was tuned on only 3 real receipts.
 
 Owner decisions:
 
@@ -154,6 +154,27 @@ Findings that affect the design:
 - Text from a neighboring column can end up in a name, so line geometry must be checked.
 - Photos include hands and other objects, so cropping to the receipt edges is required.
 - Neither Tesseract nor ONNX Runtime is Rust, so OCR is an exception to "Rust everywhere" unless `rten` can run PP-OCR.
+
+### How recognition runs in the app
+
+1. The camera frame or chosen photo is drawn to a canvas no larger than 2400 px, turned into gray pixels,
+   and the canvas is cleared at once.
+2. `core::vision` crops to the paper, corrects the overall skew and flattens the light.
+3. A Web Worker runs the PP-OCR detector through ONNX Runtime Web. `core::ocr` turns its map into line boxes,
+   each with its own tilt, so lines on crumpled paper are straightened one by one.
+4. The worker reads each line. Boxes are joined into rows by following each row from left to right,
+   which keeps a row together in a photo taken at an angle.
+5. `core::receipt` parses the rows and checks quantity × price, the items against `SUMA PLN`, and the PTU block.
+   Anything that does not add up, and any merchant or date read with low confidence, is highlighted for review.
+6. `core::categorize` assigns a category per item: dictionary, then shop defaults, then the user's own corrections.
+7. Only the encrypted operation is saved. The pixels are dropped.
+
+The recognizer files are pinned by SHA-256 or npm integrity hash and checked at build time. ONNX Runtime Web is
+JavaScript and C++, an exception to "Rust everywhere" that was accepted when choosing PP-OCR.
+
+Results on the 3 real receipts after tuning: total, merchant, date and NIP 3 of 3, items 8 of 8, about 1.3 seconds
+per receipt in desktop Chrome. These receipts were used for tuning, so the result overstates accuracy on new ones.
+The accuracy targets still need 30 to 50 receipts with a held-out part.
 
 ## 7. How the OCR decision is made
 

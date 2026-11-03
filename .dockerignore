@@ -7,3 +7,5 @@ tools
 docs
 .git
 **/.DS_Store
+# Downloaded again and checked against pinned hashes during the build.
+web/ocr/cache

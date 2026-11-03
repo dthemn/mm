@@ -87,9 +87,11 @@ fn session(c: Ctx) -> Result<Session, String> {
     c.session.get_untracked().ok_or_else(|| "The app is locked".to_string())
 }
 
+/// Shows the change at once. Sync runs in the background, so a slow or missing network
+/// never keeps the buttons disabled.
 async fn after_write(c: Ctx, s: &Session) {
     reload(c, s).await;
-    run_sync(c).await;
+    leptos::task::spawn_local(run_sync(c));
 }
 
 pub fn nav(c: Ctx) -> impl IntoView {
@@ -627,6 +629,10 @@ pub fn edit(c: Ctx, id: Option<Uuid>) -> impl IntoView {
                         }
                     }
                     data::write(&s, id.unwrap_or_else(Uuid::new_v4), KIND_TRANSACTION, &t).await?;
+                    // Show the month of the saved operation, so a receipt from last month does not seem to vanish.
+                    c.filter.from.set(String::new());
+                    c.filter.to.set(String::new());
+                    c.filter.month.set(t.date.month_of());
                     c.screen.set(Screen::Operations);
                     after_write(c, &s).await;
                     Ok(())

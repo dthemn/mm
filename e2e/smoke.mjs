@@ -7,7 +7,9 @@ const CHROME = process.env.CHROME ?? "/Applications/Google Chrome.app/Contents/M
 const q = (t) => `[data-test="${t}"]`;
 const NOTE = `smoke ${Date.now()}`;
 
-const browser = await puppeteer.launch({ executablePath: CHROME, headless: true, args: ["--no-sandbox"] });
+// IGNORE_TLS=1 accepts a self-signed certificate, for checking the production setup on localhost.
+const args = ["--no-sandbox", ...(process.env.IGNORE_TLS ? ["--ignore-certificate-errors"] : [])];
+const browser = await puppeteer.launch({ executablePath: CHROME, headless: true, args, acceptInsecureCerts: !!process.env.IGNORE_TLS });
 const page = await browser.newPage();
 const errors = [];
 page.on("pageerror", (e) => errors.push(String(e)));

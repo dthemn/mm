@@ -108,14 +108,18 @@ async fn fetch_text(url: &str) -> Result<String, String> {
     Ok(JsFuture::from(r.text().map_err(e)?).await.map_err(e)?.as_string().unwrap_or_default())
 }
 
-/// Lets the browser paint progress between heavy steps.
-async fn breathe() {
+async fn sleep(ms: i32) {
     let p = Promise::new(&mut |ok, _| {
         if let Some(w) = web_sys::window() {
-            let _ = w.set_timeout_with_callback_and_timeout_and_arguments_0(&ok, 0);
+            let _ = w.set_timeout_with_callback_and_timeout_and_arguments_0(&ok, ms);
         }
     });
     let _ = JsFuture::from(p).await;
+}
+
+/// Lets the browser paint progress between heavy steps.
+async fn breathe() {
+    sleep(0).await;
 }
 
 pub async fn recognize(gray: Gray, progress: impl Fn(String)) -> Result<Vec<Line>, String> {
@@ -143,6 +147,20 @@ pub async fn recognize(gray: Gray, progress: impl Fn(String)) -> Result<Vec<Line
         }
     }
     Ok(ocr::assemble(read))
+}
+
+/// Prints recognized lines only when `localStorage.mmDebug` is "1", for tuning on a test device.
+/// Without the flag nothing about a receipt reaches the console.
+fn debug_lines(lines: &[Line]) {
+    let on = web_sys::window()
+        .and_then(|w| w.local_storage().ok().flatten())
+        .and_then(|s| s.get_item("mmDebug").ok().flatten())
+        .is_some_and(|v| v == "1");
+    if on {
+        for l in lines {
+            web_sys::console::debug_1(&format!("ocr {:.2} {}", l.confidence, l.text).into());
+        }
+    }
 }
 
 /// Draws a source into a canvas no larger than `MAX_SIDE` and returns its gray pixels.
@@ -259,6 +277,7 @@ pub fn scan(c: Ctx) -> impl IntoView {
             stream.with_value(stop);
             camera.set(false);
             let lines = recognize(gray, move |s| status.set(s)).await?;
+            debug_lines(&lines);
             let parsed = receipt::parse(&lines);
             if parsed.items.is_empty() && parsed.total.is_none() {
                 status.set(String::new());
@@ -284,9 +303,19 @@ pub fn scan(c: Ctx) -> impl IntoView {
             let Ok(s) = s.dyn_into::<MediaStream>() else { return };
             let node: &HtmlVideoElement = &el;
             node.set_src_object(Some(&s));
-            let _ = node.play();
             stream.set_value(Some(s));
-            camera.set(true);
+            // The shutter is enabled only once frames arrive, otherwise a quick tap captures nothing.
+            if let Ok(p) = node.play() {
+                let _ = JsFuture::from(p).await;
+            }
+            // Slow phones can take a few seconds to deliver the first frame.
+            for _ in 0..50 {
+                if node.video_width() > 0 {
+                    camera.set(true);
+                    return;
+                }
+                sleep(100).await;
+            }
         });
     });
     on_cleanup(move || stream.with_value(stop));

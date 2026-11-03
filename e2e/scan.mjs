@@ -20,7 +20,11 @@ const env = { ...process.env, DATABASE_URL: `postgres://mm:mm-dev@127.0.0.1:5543
   STATIC_DIR: join(root, "web/dist"), LISTEN: `127.0.0.1:${PORT}`, AUTH_PER_MINUTE: "600", RUST_LOG: "warn" };
 const sql = (q) => execFileSync("docker", ["exec", "mm-db-1", "psql", "-U", "mm", "-d", "mm", "-At", "-c", q]).toString();
 sql(`CREATE DATABASE ${dbName}`);
-const server = spawn(bin, [], { env, stdio: ["ignore", "inherit", "inherit"] });
+// The server must not hold this script's output open, and must stop when the script stops.
+const server = spawn(bin, [], { env, stdio: "ignore" });
+const cleanup = () => { try { server.kill(); } catch {} };
+process.on("exit", cleanup);
+for (const sig of ["SIGINT", "SIGTERM"]) process.on(sig, () => { cleanup(); process.exit(1); });
 for (let i = 0; i < 100; i++) {
   try { await fetch(`${ORIGIN}/index.html`); break; } catch { await new Promise((r) => setTimeout(r, 100)); }
 }
@@ -31,6 +35,8 @@ const page = await browser.newPage();
 await page.setViewport({ width: 390, height: 844, deviceScaleFactor: 2 });
 const errors = [];
 page.on("pageerror", (e) => errors.push(String(e)));
+page.on("console", (m) => { if (process.env.SHOW && m.text().startsWith("ocr ")) console.log(m.text()); });
+page.on("workercreated", (w) => { if (process.env.SHOW) console.log("worker:", w.url()); });
 const cdp = await page.createCDPSession();
 await cdp.send("WebAuthn.enable");
 await cdp.send("WebAuthn.addVirtualAuthenticator", { options: {
@@ -44,6 +50,7 @@ const click = async (t) => {
 };
 
 await page.goto(ORIGIN, { waitUntil: "load" });
+if (process.env.SHOW) await page.evaluate(() => localStorage.setItem("mmDebug", "1"));
 await click("go-register");
 await page.type(q("invite"), execFileSync(bin, ["invite"], { env }).toString().trim());
 await click("invite-next");
@@ -88,16 +95,28 @@ for (const f of files) {
   const input = await page.waitForSelector(q("scan-file"));
   const t0 = Date.now();
   await input.uploadFile(join(SAMPLES, f));
+  const LIMIT = +(process.env.LIMIT ?? 120000);
+  const ticker = setInterval(async () => {
+    if (!process.env.SHOW) return;
+    const st = await page.$eval(q("scan-status"), (e) => e.textContent).catch(() => "-");
+    console.log(`  ${((Date.now() - t0) / 1000).toFixed(0)}s status: ${st}`);
+  }, 3000);
   const outcome = await Promise.race([
-    page.waitForSelector(q("f-save"), { timeout: 120000 }).then(() => "form"),
-    page.waitForSelector(q("error"), { timeout: 120000 }).then(() => "error"),
-  ]);
+    page.waitForSelector(q("f-save"), { timeout: LIMIT }).then(() => "form"),
+    page.waitForSelector(q("error"), { timeout: LIMIT }).then(() => "error"),
+  ]).catch(() => "timeout").finally(() => clearInterval(ticker));
+  if (outcome === "timeout") {
+    rows.push({ file: f, secs: LIMIT / 1000, failed: "timeout" });
+    break;
+  }
   const secs = (Date.now() - t0) / 1000;
   if (outcome !== "form") {
     rows.push({ file: f, secs, failed: await page.$eval(q("error"), (e) => e.textContent) });
     continue;
   }
-  const form = await page.evaluate((sel) => ({
+  const form = await page.evaluate(() => {
+    const sel = (t) => `[data-test="${t}"]`;
+    return {
     merchant: document.querySelector(sel("f-merchant")).value,
     date: document.querySelector(sel("f-date")).value,
     total: document.querySelector(sel("f-amount")).value,
@@ -109,7 +128,8 @@ for (const f of files) {
     })),
     doubts: document.querySelectorAll(".doubt").length,
     mismatch: !!document.querySelector(sel("mismatch")),
-  }), (t) => `[data-test="${t}"]`);
+    };
+  });
   const r = { file: f, secs, doubts: form.doubts, mismatch: form.mismatch, items: form.items.length };
   if (truth) {
     r.total = grosze(form.total) === truth.total;
@@ -131,7 +151,7 @@ for (const f of files) {
     r.itemsTruth = truth.items.length;
   }
   rows.push(r);
-  if (process.env.SHOW) console.log(JSON.stringify(form));
+  if (process.env.SHOW) console.log("FORM", JSON.stringify(form));
   await click("form-back");
 }
 

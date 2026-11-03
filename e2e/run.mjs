@@ -24,7 +24,7 @@ sql(`CREATE DATABASE ${dbName}`);
 
 let server;
 const startServer = async () => {
-  server = spawn(bin, [], { env, stdio: ["ignore", "inherit", "inherit"] });
+  server = spawn(bin, [], { env, stdio: ["ignore", "ignore", "inherit"] });
   for (let i = 0; i < 100; i++) {
     try { await fetch(`${ORIGIN}/index.html`); return; } catch { await new Promise((r) => setTimeout(r, 100)); }
   }
@@ -32,8 +32,14 @@ const startServer = async () => {
 };
 const invite = () => execFileSync(bin, ["invite"], { env }).toString().trim();
 
+process.on("exit", () => { try { server.kill(); } catch {} });
+for (const sig of ["SIGINT", "SIGTERM"]) process.on(sig, () => process.exit(1));
 await startServer();
-const browser = await puppeteer.launch({ executablePath: CHROME, headless: true, args: ["--no-sandbox"] });
+// A fake camera shows a test pattern, which lets the shutter path run without a real device.
+const browser = await puppeteer.launch({ executablePath: CHROME, headless: true, args: [
+  "--no-sandbox", "--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream",
+] });
+const FIXTURE = join(root, "e2e/fixtures/receipt.jpg");
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const q = (t) => `[data-test="${t}"]`;
@@ -49,7 +55,9 @@ class Device {
     d.page = await d.ctx.newPage();
     d.page.on("console", (m) => { if (m.type() === "error") d.errors.push(m.text()); });
     d.page.on("pageerror", (e) => { d.errors.push(String(e)); console.log(`     [${name}] ${String(e.stack ?? e).slice(0, 900)}`); });
+    d.urls = [];
     d.page.on("request", (r) => {
+      d.urls.push(r.url());
       if (r.url().includes("/api/")) d.sent.push(`${r.method()} ${r.url()}\n${r.postData() ?? ""}`);
     });
     d.cdp = await d.page.createCDPSession();
@@ -669,6 +677,93 @@ await test("finance data is encrypted on the server", async () => {
   }
   const local = await fin.dumpLocal();
   ok(!local.includes("Rossmann") && !local.includes("Chleb"), "plaintext in IndexedDB");
+});
+
+const scanFixture = async (d) => {
+  await d.click("nav-photo");
+  const input = await d.page.waitForSelector(q("scan-file"));
+  await input.uploadFile(FIXTURE);
+  await d.page.waitForSelector(q("scan-hint"), { timeout: 60000 });
+};
+const itemCategory = (d, name) => d.page.evaluate((item, n) => {
+  const li = [...document.querySelectorAll(item)].find((x) => x.querySelector('[data-test="item-name"]').value.startsWith(n));
+  const s = li.querySelector('[data-test="item-category"]');
+  return s.options[s.selectedIndex].textContent;
+}, q("item"), name);
+
+await test("a receipt photo becomes a checked operation with a category per item", async () => {
+  await scanFixture(fin);
+  eq(await fin.page.$eval(q("f-merchant"), (e) => e.value), "Sklep Testowy Sp. z o.o.", "merchant");
+  eq(await fin.page.$eval(q("f-amount"), (e) => e.value), "38,86", "total");
+  eq(await fin.page.$eval(q("f-date"), (e) => e.value), "2026-10-31", "date");
+  eq(await fin.page.$eval(q("f-nip"), (e) => e.value), "1234563218", "NIP");
+  eq((await fin.page.$$(q("item"))).length, 3, "items");
+  ok(!(await fin.page.$(q("mismatch"))), "the receipt adds up");
+  eq(await itemCategory(fin, "Chleb"), "Household", "bread follows the earlier Food to Household merge");
+  eq(await itemCategory(fin, "Szampon"), "Household", "shampoo");
+  ok(!(await fin.page.$(q("scan-video"))), "the camera is closed once the photo is read");
+  await fin.click("f-save");
+  await fin.waitText("tx-title", "Sklep Testowy");
+  eq(await fin.page.$eval(q("month"), (e) => e.textContent), "10.2026", "the list shows the receipt's month");
+});
+
+await test("a corrected category is remembered for the next receipt", async () => {
+  await scanFixture(fin);
+  const at = await fin.page.$$eval(q("item-name"), (a) => a.findIndex((e) => e.value.startsWith("Szampon")));
+  await fin.pick("item-category", "Health", at);
+  await fin.click("f-save");
+  await fin.page.waitForSelector(q("add-tx"));
+  await scanFixture(fin);
+  eq(await itemCategory(fin, "Szampon"), "Health", "the correction is applied");
+  eq(await itemCategory(fin, "Mleko"), "Household", "other items keep their category");
+  await fin.click("form-back");
+});
+
+await test("a receipt that does not add up cannot be saved silently", async () => {
+  await scanFixture(fin);
+  const at = await fin.page.$$eval(q("item-name"), (a) => a.findIndex((e) => e.value.startsWith("Chleb")));
+  const price = (await fin.page.$$(q("item-price")))[at];
+  await price.evaluate((e) => e.scrollIntoView({ block: "center" }));
+  await price.click({ clickCount: 3 });
+  await price.type("5,99");
+  await fin.page.waitForSelector(q("mismatch"));
+  await fin.click("f-save");
+  ok((await fin.text("form-error")).includes("receipt total is 38,86"), "explains the difference");
+  ok(await fin.page.$(q("f-save")), "still on the form");
+  await fin.click("confirm-mismatch");
+  await fin.click("f-save");
+  await fin.page.waitForSelector(q("add-tx"));
+});
+
+await test("the photo never leaves the device", async () => {
+  const sent = fin.sent.join("\n");
+  ok(!sent.includes("/9j/") && !sent.includes("_9j_"), "no JPEG data in any request");
+  ok(!sent.includes("Szampon") && !sent.includes("Sklep Testowy"), "no receipt text in any request");
+  const foreign = fin.urls.filter((u) => !u.startsWith(ORIGIN) && !u.startsWith("data:") && !u.startsWith("blob:"));
+  eq(foreign, [], "no request leaves the app's own server");
+});
+
+await test("the recognizer is cached and works offline after the first scan", async () => {
+  const cached = await fin.page.evaluate(async () => (await (await caches.open("mm-ocr-1")).keys()).map((r) => new URL(r.url).pathname).sort());
+  ok(cached.includes("/ocr/det.onnx") && cached.includes("/ocr/rec.onnx"), `cached: ${cached}`);
+  await fin.offline(true);
+  try {
+    await scanFixture(fin);
+    eq(await fin.page.$eval(q("f-amount"), (e) => e.value), "38,86", "total offline");
+    await fin.click("form-back");
+  } finally {
+    await fin.offline(false);
+  }
+});
+
+await test("the camera opens, and a frame without a receipt is reported", async () => {
+  await fin.click("nav-photo");
+  await fin.page.waitForSelector(`${q("shutter")}:not([disabled])`, { timeout: 15000 });
+  await fin.click("shutter");
+  const msg = await fin.page.waitForSelector(q("error"), { timeout: 60000 }).then((e) => e.evaluate((x) => x.textContent));
+  ok(msg.includes("No receipt"), `explains the problem: ${msg}`);
+  ok(await fin.page.$(q("scan-file")), "still on the scan screen, with the photo option");
+  await fin.click("nav-dashboard");
 });
 
 await test("the layout fits 320 px with nothing cut off", async () => {

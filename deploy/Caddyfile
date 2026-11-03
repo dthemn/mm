@@ -1,0 +1,19 @@
+# TLS, compression and the reverse proxy. The app itself sets CSP, HSTS and the other security headers.
+{$DOMAIN} {
+	encode zstd gzip
+	header -Server
+	reverse_proxy app:8080
+	log {
+		# Method, path and status only: request bodies and cookies are never logged.
+		format filter {
+			wrap console
+			fields {
+				request>headers>Cookie delete
+				request>headers>Authorization delete
+				request>uri query {
+					delete since
+				}
+			}
+		}
+	}
+}

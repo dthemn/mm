@@ -3,10 +3,9 @@
 A personal income and expense tracker for a family in Poland: a mobile web app (PWA) in Rust with end-to-end encryption.
 The main flow: photograph a receipt, and the app handles the rest on the device.
 
-> **Status: early development.** Stage 3 of 6 is done: you can enter income and expenses by hand and see them on a
-> dashboard. Receipt scanning, statement import and subscriptions do not exist yet, so the camera button opens the
-> manual form for now. Everything was tested in desktop Chrome with a virtual passkey. Nothing has been tested on a
-> real iPhone or Android phone.
+> **Status: early development.** Stages 1 to 4 of 6 are done: manual operations, a dashboard, and receipt scanning on
+> the device. Statement import and subscriptions do not exist yet. Everything was tested in desktop Chrome with a
+> virtual passkey and a fake camera. Nothing has been tested on a real iPhone or Android phone yet.
 
 ## What works today
 
@@ -18,6 +17,9 @@ The main flow: photograph a receipt, and the app handles the rest on the device.
 - Filters by period, account and category. Tapping a category opens its items.
 - Your own categories and accounts, category merging, and merchant editing.
 - Export of all your data to CSV or JSON.
+- Receipt scanning on the device: take a photo or pick one, check the highlighted fields, save.
+  Each item gets its own category, and a category you correct is remembered for that shop.
+  The photo is never stored or sent anywhere, and recognition works offline after the first scan.
 
 ## Principles
 
@@ -30,12 +32,13 @@ The main flow: photograph a receipt, and the app handles the rest on the device.
 
 | Path | Purpose |
 |---|---|
-| `core/` | Money, models, analytics, export, cryptography and sync. Builds natively and to WASM. |
+| `core/` | Money, models, analytics, export, receipt parsing, image preparation, cryptography and sync. |
 | `server/` | Axum, sqlx, PostgreSQL. Stores only encrypted records and minimal metadata. |
-| `web/` | Leptos CSR client, IndexedDB storage, WebAuthn PRF, service worker. |
+| `web/` | Leptos CSR client, IndexedDB storage, WebAuthn PRF, camera, OCR worker, service worker. |
 | `e2e/` | End-to-end tests in Chrome against a real server and database. |
 | `tools/ocr-bench/` | Local comparison of OCR engines on Polish receipts. |
 | `docs/ARCHITECTURE.md` | Architecture, key hierarchy and threat model. |
+| `deploy/` | Production setup with Caddy and HTTPS, see `docs/DEPLOY.md`. |
 
 ## How accounts work
 
@@ -48,6 +51,11 @@ The main flow: photograph a receipt, and the app handles the rest on the device.
 
 Records are encrypted with XChaCha20-Poly1305. The user id, record id, schema version and revision are bound
 as AAD, so the server cannot swap records or quietly restore an old version.
+
+## Put it on your server
+
+To use it on your phone, deploy it to a VPS with a domain: see [docs/DEPLOY.md](docs/DEPLOY.md).
+Passkeys and the camera need HTTPS, so a phone cannot use the local setup below.
 
 ## Run it locally
 
@@ -87,6 +95,7 @@ Notes:
 - Use the exact address `http://localhost:8080`, because passkeys are tied to the site name.
   `127.0.0.1` will not work.
 - A phone cannot use this setup: passkeys there need a real domain with HTTPS.
+- The first build downloads the receipt recognizer, about 26 MB, and checks it against pinned hashes.
 - If your browser or password manager offers no passkey that supports PRF, the app still works, and shows
   "Passkey encryption: off" in Settings. Automated tests use a virtual passkey in Chrome. Testing with a real
   fingerprint is still pending.
