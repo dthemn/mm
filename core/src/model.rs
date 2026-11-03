@@ -136,8 +136,6 @@ pub enum TxError {
     PlnMismatch,
     #[error("Time must look like 14:30")]
     Time,
-    #[error("NIP must have 10 digits and a valid check digit")]
-    Nip,
     #[error("Item \"{0}\" has a wrong total")]
     ItemTotal(String),
     #[error("Items must have names")]
@@ -146,6 +144,14 @@ pub enum TxError {
     ItemsSum { items: String, amount: String },
 }
 
+/// NIP as digits only. Receipts print it as "123-456-32-18", "123 456 32 18" or "PL1234563218".
+pub fn normalize_nip(s: &str) -> String {
+    let t = s.trim();
+    let t = t.strip_prefix("PL").or_else(|| t.strip_prefix("pl")).unwrap_or(t);
+    t.chars().filter(|c| !matches!(c, ' ' | '-' | '.' | '\u{a0}')).collect()
+}
+
+/// A NIP is never required. This only says whether a given one looks right.
 pub fn valid_nip(s: &str) -> bool {
     const W: [u32; 9] = [6, 5, 7, 2, 3, 4, 5, 6, 7];
     let d: Vec<u32> = s.chars().filter_map(|c| c.to_digit(10)).collect();
@@ -179,9 +185,6 @@ impl Transaction {
         }
         if self.time.as_deref().is_some_and(|t| !valid_time(t)) {
             return Err(TxError::Time);
-        }
-        if self.nip.as_deref().is_some_and(|n| !valid_nip(n)) {
-            return Err(TxError::Nip);
         }
         for i in &self.items {
             if i.name.trim().is_empty() {
@@ -330,8 +333,16 @@ mod tests {
         assert!(!valid_nip("1234563217"));
         assert!(!valid_nip("123456321"));
         assert!(!valid_nip("123-456-32-18"));
-        let t = Transaction { nip: Some("1234563217".into()), ..tx(1) };
-        assert_eq!(t.validate(), Err(TxError::Nip));
+        assert!(valid_nip(&normalize_nip("123-456-32-18")));
+        assert!(valid_nip(&normalize_nip(" PL 123 456 32 18 ")));
+        assert_eq!(normalize_nip(""), "");
+    }
+
+    #[test]
+    fn nip_is_optional_and_never_blocks_saving() {
+        tx(1).validate().unwrap();
+        // A typo is shown as a warning in the form, but the operation still saves.
+        Transaction { nip: Some("1234563217".into()), ..tx(1) }.validate().unwrap();
     }
 
     #[test]
