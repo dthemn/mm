@@ -10,3 +10,4 @@ tools/ocr-bench/phone/results.jsonl
 web/dist/
 web/ocr/cache/
 deploy/.env
+/.env

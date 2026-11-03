@@ -95,8 +95,9 @@ Notes:
 - Use the exact address `http://localhost:8080`, because passkeys are tied to the site name.
   `127.0.0.1` will not work.
 - A phone cannot use this setup over `http://<computer IP>:8080`: browsers turn off passkeys, the camera and safe
-  storage on plain HTTP pages, and the app shows a warning. To try it on a phone, see the HTTPS tunnel in
-  [docs/DEPLOY.md](docs/DEPLOY.md).
+  storage on plain HTTP pages, and the app shows a warning. To try it on a phone, give it a fixed https address
+  on your own domain through Cloudflare Tunnel (`cp .env.example .env`, see [docs/DEPLOY.md](docs/DEPLOY.md)).
+  Rebuilding keeps the data; only `docker compose down -v` deletes it.
 - The first build downloads the receipt recognizer, about 26 MB, and checks it against pinned hashes.
 - If your browser or password manager offers no passkey that supports PRF, the app still works, and shows
   "Passkey encryption: off" in Settings. Automated tests use a virtual passkey in Chrome. Testing with a real

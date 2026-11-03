@@ -30,7 +30,35 @@ Limits: the address changes each time `cloudflared` starts, and a passkey made f
 on the next. Cloudflare carries the traffic, which it can see only as ciphertext, and anyone with the address
 reaches the login page, though registration still needs an invite. Use it for testing, then deploy as below.
 
-## What you need
+## A fixed test address on your own computer (Cloudflare Tunnel)
+
+The app runs in Docker on your computer and gets a permanent address such as `https://mm.example.com`, with a real
+certificate, so passkeys work on phones. Data stays in the Docker volume across rebuilds. The domain must use
+Cloudflare's name servers (add it at dash.cloudflare.com first, if it is not there yet).
+
+1. In the Cloudflare dashboard open **Zero Trust → Networks → Tunnels → Create a tunnel**, choose **Cloudflared**,
+   and name it, for example `mm-mac`. Copy the token from the install command shown (the long string after
+   `--token`). Skip installing anything: the tunnel runs in Docker.
+2. On the tunnel's **Public Hostname** tab, add a hostname: subdomain `mm`, your domain, service type `HTTP`,
+   URL `app:8080`. Cloudflare creates the `mm` CNAME record itself.
+3. Next to `compose.yml`:
+
+   ```sh
+   cp .env.example .env     # then fill in TUNNEL_TOKEN, RP_ID and ORIGIN with your hostname
+   docker compose up --build -d
+   docker compose exec app mm-server invite
+   ```
+
+4. Open the address on the phone, choose **Create account** and paste the invite.
+
+To update after `git pull`, run `docker compose up --build -d` again: accounts, passkeys and data stay.
+Never run `docker compose down -v`, which deletes the database volume. Keep `RP_ID` the same: passkeys belong to
+that name. A copy of the test database: `docker compose exec -T db pg_dump -U mm mm > mm-backup.sql`.
+
+The computer must stay on and awake for the address to work. Cloudflare ends TLS on its side: it sees records only
+as ciphertext, but it serves the app's code to the phone and could change it, as noted in the README.
+Use a VPS, below, for real family data.
+
 
 - A VPS in the EU with at least 2 GB of RAM and 10 GB of disk, running Ubuntu 24.04 or Debian 12.
   1 GB of RAM is not enough for the first build.

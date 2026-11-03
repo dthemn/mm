@@ -1,5 +1,7 @@
 # Runs the whole app on this computer: docker compose up --build
 # Local testing only. The password is not a secret and ports open only on localhost.
+# Settings come from .env next to this file, if it exists (see .env.example). Data lives in the
+# db volume: rebuilding and restarting keep it, only `docker compose down -v` deletes it.
 name: mm-local
 
 services:
@@ -24,12 +26,26 @@ services:
       # For a phone test through an HTTPS tunnel, set both to the tunnel's address (docs/DEPLOY.md).
       RP_ID: ${RP_ID:-localhost}
       ORIGIN: ${ORIGIN:-http://localhost:8080}
+      # Through the tunnel every request comes from cloudflared, so the rate limit reads the forwarded address.
+      BEHIND_PROXY: ${BEHIND_PROXY:-0}
     ports:
       - "127.0.0.1:8080:8080"
     depends_on:
       db:
         condition: service_healthy
     restart: unless-stopped
+
+  # A fixed public https address through Cloudflare Tunnel (docs/DEPLOY.md). Starts only with
+  # COMPOSE_PROFILES=tunnel and a TUNNEL_TOKEN in .env.
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:-}
+    depends_on:
+      - app
+    restart: unless-stopped
+    profiles: ["tunnel"]
 
 volumes:
   db:
