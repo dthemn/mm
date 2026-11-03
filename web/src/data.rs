@@ -22,6 +22,7 @@ pub struct Data {
     pub categories: HashMap<Uuid, Category>,
     pub accounts: HashMap<Uuid, Account>,
     pub merchants: HashMap<Uuid, Merchant>,
+    pub rules: HashMap<Uuid, CategoryRule>,
 }
 
 fn sorted<T: Clone>(m: &HashMap<Uuid, T>, name: impl Fn(&T) -> String) -> Vec<(Uuid, T)> {
@@ -53,6 +54,10 @@ impl Data {
 
     pub fn merchant_name(&self, id: Option<Uuid>) -> Option<String> {
         id.and_then(|i| self.merchants.get(&i)).map(|m| m.name.clone())
+    }
+
+    pub fn rule_list(&self) -> Vec<CategoryRule> {
+        self.rules.values().cloned().collect()
     }
 
     pub fn conflicts(&self) -> usize {
@@ -125,6 +130,18 @@ fn apply(d: &mut Data, id: Uuid, e: &Envelope) -> bool {
             match serde_json::from_value(v) {
                 Ok(m) => {
                     d.merchants.insert(id, m);
+                }
+                Err(_) => return false,
+            }
+        }
+        KIND_RULE => {
+            if e.deleted {
+                d.rules.remove(&id);
+                return true;
+            }
+            match serde_json::from_value(v) {
+                Ok(r) => {
+                    d.rules.insert(id, r);
                 }
                 Err(_) => return false,
             }

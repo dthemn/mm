@@ -8,3 +8,4 @@ tools/ocr-bench/out/
 .DS_Store
 tools/ocr-bench/phone/results.jsonl
 web/dist/
+web/ocr/cache/

@@ -6,7 +6,8 @@ use crate::flows::Session;
 use js_sys::{Array, Uint8Array};
 use leptos::prelude::*;
 use mm_core::analytics::{self, CategoryLine, Dashboard, Filter, MonthTotal, TREND_MONTHS};
-use mm_core::crypto::merchant_id;
+use mm_core::categorize::fold;
+use mm_core::crypto::{merchant_id, named_id};
 use mm_core::date::{Date, Month};
 use mm_core::export::{self, Lookup};
 use mm_core::model::*;
@@ -21,6 +22,26 @@ pub enum Manage {
     Categories,
     Accounts,
     Merchants,
+}
+
+/// Fields the parser was not sure about. Only these are highlighted.
+#[derive(Clone, Debug, Default)]
+pub struct Doubts {
+    pub merchant: bool,
+    pub nip: bool,
+    pub date: bool,
+    pub total: bool,
+    pub items: Vec<bool>,
+}
+
+/// A recognized receipt. It holds parsed values only, never the photo.
+#[derive(Clone, Debug)]
+pub struct Draft {
+    pub tx: Transaction,
+    pub merchant: String,
+    pub doubts: Doubts,
+    /// Categories the app suggested, to learn from the user's corrections.
+    pub suggested: Vec<Uuid>,
 }
 
 #[derive(Clone, Copy)]
@@ -82,7 +103,7 @@ pub fn nav(c: Ctx) -> impl IntoView {
         <nav class="tabs">
             <button data-test="nav-dashboard" class:active=on(Screen::Dashboard) on:click=move |_| go(Screen::Dashboard)>"Dashboard"</button>
             <button data-test="nav-ops" class:active=on(Screen::Operations) on:click=move |_| go(Screen::Operations)>"Operations"</button>
-            <button class="photo" data-test="nav-photo" aria-label="Add a receipt" on:click=move |_| go(Screen::Edit(None))>
+            <button class="photo" data-test="nav-photo" aria-label="Scan a receipt" on:click=move |_| go(Screen::Scan)>
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>
             </button>
             <button data-test="nav-add" on:click=move |_| go(Screen::Edit(None))>"Add"</button>
@@ -368,6 +389,7 @@ type Prepared = (Transaction, Option<(Uuid, Merchant)>, Session);
 struct ItemDraft {
     key: Uuid,
     raw_name: String,
+    doubt: bool,
     name: RwSignal<String>,
     qty: RwSignal<String>,
     unit: RwSignal<String>,
@@ -382,6 +404,7 @@ impl ItemDraft {
         Self {
             key: Uuid::new_v4(),
             raw_name: String::new(),
+            doubt: false,
             name: RwSignal::new(String::new()),
             qty: RwSignal::new("1".into()),
             unit: RwSignal::new("pcs".into()),
@@ -392,10 +415,11 @@ impl ItemDraft {
         }
     }
 
-    fn from(i: &LineItem) -> Self {
+    fn from(i: &LineItem, doubt: bool) -> Self {
         Self {
             key: Uuid::new_v4(),
             raw_name: i.raw_name.clone(),
+            doubt,
             name: RwSignal::new(i.name.clone()),
             qty: RwSignal::new(i.qty.display()),
             unit: RwSignal::new(i.unit.clone()),
@@ -479,7 +503,15 @@ fn conflict_box(c: Ctx, id: Uuid, f: FieldConflict) -> impl IntoView {
 
 pub fn edit(c: Ctx, id: Option<Uuid>) -> impl IntoView {
     let d = c.data.get_untracked();
-    let old: Option<Transaction> = id.and_then(|i| d.txs.iter().find(|t| t.0 == i).map(|t| t.1.clone()));
+    let mut draft: Option<Draft> = None;
+    if id.is_none() {
+        c.draft.update_value(|v| draft = v.take());
+    }
+    let doubts = draft.as_ref().map(|x| x.doubts.clone()).unwrap_or_default();
+    let suggested = StoredValue::new(draft.as_ref().map(|x| x.suggested.clone()).unwrap_or_default());
+    let scanned = draft.is_some();
+    let old: Option<Transaction> = id.and_then(|i| d.txs.iter().find(|t| t.0 == i).map(|t| t.1.clone()))
+        .or_else(|| draft.as_ref().map(|x| x.tx.clone()));
     let conflicts = id.and_then(|i| d.meta.get(&i)).map(|m| m.conflicts.clone()).unwrap_or_default();
     let default_account = d.account_list().first().map(|a| a.0).unwrap_or(ACCOUNT_MAIN);
     let o = old.as_ref();
@@ -487,7 +519,8 @@ pub fn edit(c: Ctx, id: Option<Uuid>) -> impl IntoView {
     let kind = RwSignal::new(o.map(|t| t.kind).unwrap_or_default());
     let date = RwSignal::new(o.map(|t| t.date).unwrap_or_else(today).iso());
     let time = RwSignal::new(o.and_then(|t| t.time.clone()).unwrap_or_default());
-    let merchant = RwSignal::new(o.and_then(|t| d.merchant_name(t.merchant_id)).unwrap_or_default());
+    let merchant = RwSignal::new(o.and_then(|t| d.merchant_name(t.merchant_id))
+        .or_else(|| draft.as_ref().map(|x| x.merchant.clone())).unwrap_or_default());
     let nip = RwSignal::new(o.and_then(|t| t.nip.clone()).unwrap_or_default());
     let amount = RwSignal::new(o.map(|t| amount_input(t.amount)).unwrap_or_default());
     let currency = RwSignal::new(o.map(|t| t.currency.clone()).unwrap_or_else(|| "PLN".into()));
@@ -496,7 +529,11 @@ pub fn edit(c: Ctx, id: Option<Uuid>) -> impl IntoView {
     let account = RwSignal::new(o.map(|t| t.account_id).unwrap_or(default_account));
     let category = RwSignal::new(o.map(|t| t.category_id).unwrap_or(CAT_OTHER));
     let note = RwSignal::new(o.map(|t| t.note.clone()).unwrap_or_default());
-    let items = RwSignal::new(o.map(|t| t.items.iter().map(ItemDraft::from).collect::<Vec<_>>()).unwrap_or_default());
+    let items = RwSignal::new(o.map(|t| t.items.iter().enumerate()
+        .map(|(i, it)| ItemDraft::from(it, doubts.items.get(i).copied().unwrap_or(false))).collect::<Vec<_>>()).unwrap_or_default());
+    // A receipt keeps its printed total, so a misread item shows up as a difference.
+    let receipt = o.is_some_and(|t| t.source == Source::Receipt);
+    let confirm = RwSignal::new(o.is_some_and(|t| t.mismatch_confirmed));
     let (source, review) = (o.map(|t| t.source).unwrap_or_default(), o.map(|t| t.review).unwrap_or_default());
     let form_error = RwSignal::new(String::new());
 
@@ -521,11 +558,19 @@ pub fn edit(c: Ctx, id: Option<Uuid>) -> impl IntoView {
             let date = Date::parse_iso(&date.get_untracked()).ok_or("Enter a date")?;
             let lines = items.get_untracked().iter().map(ItemDraft::build).collect::<Result<Vec<_>, _>>()?;
             let currency = currency.get_untracked().trim().to_uppercase();
-            let total = if lines.is_empty() {
+            let sum = lines.iter().try_fold(0i64, |a, l| a.checked_add(l.total)).ok_or("The amount is too large")?;
+            let total = if lines.is_empty() || receipt {
                 parse_amount(&amount.get_untracked()).map_err(|_| "Enter the amount, like 12,34".to_string())?
             } else {
-                lines.iter().try_fold(0i64, |a, l| a.checked_add(l.total)).ok_or("The amount is too large")?
+                sum
             };
+            let mismatch = receipt && !lines.is_empty() && sum != total;
+            if mismatch && !confirm.get_untracked() {
+                return Err(format!(
+                    "The items add up to {}, but the receipt total is {}. Fix an item, or confirm below to save it as it is",
+                    format_amount(sum), format_amount(total),
+                ));
+            }
             let in_pln = if currency == "PLN" {
                 total
             } else {
@@ -556,9 +601,10 @@ pub fn edit(c: Ctx, id: Option<Uuid>) -> impl IntoView {
                 account_id: account.get_untracked(),
                 category_id: category.get_untracked(),
                 source,
-                review,
+                review: if mismatch || (review == Review::NeedsReview && !receipt) { Review::NeedsReview } else { Review::Reviewed },
                 note: note.get_untracked().trim().to_string(),
                 items: lines,
+                mismatch_confirmed: mismatch,
             };
             t.validate().map_err(|e| e.to_string())?;
             Ok((t, new_merchant, s))
@@ -570,6 +616,15 @@ pub fn edit(c: Ctx, id: Option<Uuid>) -> impl IntoView {
                 busy_task(c, async move {
                     if let Some((mid, m)) = m {
                         data::write(&s, mid, KIND_MERCHANT, &m).await?;
+                    }
+                    // A category the user changed becomes a rule for the next receipts from this shop.
+                    for (i, line) in t.items.iter().enumerate() {
+                        if suggested.with_value(|v| v.get(i).is_some_and(|sug| *sug != line.category_id)) {
+                            let pattern = fold(&line.name);
+                            let key = format!("{}|{pattern}", t.merchant_id.map(|m| m.to_string()).unwrap_or_default());
+                            let rule = CategoryRule { merchant_id: t.merchant_id, pattern, category_id: line.category_id };
+                            data::write(&s, named_id(&s.dek, b"rule", &key), KIND_RULE, &rule).await?;
+                        }
                     }
                     data::write(&s, id.unwrap_or_else(Uuid::new_v4), KIND_TRANSACTION, &t).await?;
                     c.screen.set(Screen::Operations);
@@ -594,7 +649,8 @@ pub fn edit(c: Ctx, id: Option<Uuid>) -> impl IntoView {
     let item_row = move |i: ItemDraft| {
         let key = i.key;
         view! {
-            <li class="item" data-test="item">
+            <li class="item" class:doubt=i.doubt data-test="item">
+                {i.doubt.then(|| view! { <p class="warn" data-test="item-doubt">"Check this item"</p> })}
                 <label>"Name"<input data-test="item-name" prop:value=move || i.name.get() on:input=move |e| i.name.set(event_target_value(&e)) /></label>
                 <div class="row">
                     <label>"Quantity"<input data-test="item-qty" inputmode="decimal" prop:value=move || i.qty.get() on:input=move |e| i.qty.set(event_target_value(&e)) /></label>
@@ -615,7 +671,7 @@ pub fn edit(c: Ctx, id: Option<Uuid>) -> impl IntoView {
 
     view! {
         <header class="row">
-            <h1>{if id.is_some() { "Edit operation" } else { "New operation" }}</h1>
+            <h1>{if scanned { "Check the receipt" } else if id.is_some() { "Edit operation" } else { "New operation" }}</h1>
             <button data-test="form-back" on:click=move |_| c.screen.set(Screen::Operations)>"Back"</button>
         </header>
         {boxes}
@@ -623,16 +679,37 @@ pub fn edit(c: Ctx, id: Option<Uuid>) -> impl IntoView {
             <button data-test="kind-expense" class:active=move || kind.get() == TxKind::Expense on:click=move |_| kind.set(TxKind::Expense)>"Expense"</button>
             <button data-test="kind-income" class:active=move || kind.get() == TxKind::Income on:click=move |_| kind.set(TxKind::Income)>"Income"</button>
         </div>
-        {move || match items_sum() {
-            None => view! {
-                <label>"Amount"
+        {scanned.then(|| view! {
+            <p class="hint" data-test="scan-hint">{if doubts.merchant || doubts.date || doubts.total || doubts.nip || doubts.items.contains(&true) {
+                "Check the highlighted fields, then save."
+            } else {
+                "Everything adds up. Check and save."
+            }}</p>
+        })}
+        {move || match (items_sum(), receipt) {
+            (None, _) | (Some(_), true) => view! {
+                <label class:doubt=doubts.total>{if receipt { "Receipt total" } else { "Amount" }}
                     <input class="big-input" data-test="f-amount" inputmode="decimal" placeholder="0,00"
                         prop:value=move || amount.get() on:input=move |e| amount.set(event_target_value(&e)) />
                 </label>
             }.into_any(),
-            Some(sum) => view! {
+            (Some(sum), false) => view! {
                 <p>"Amount: "<strong data-test="f-sum">{sum.map(format_amount).unwrap_or_else(|| "check the items".into())}</strong></p>
             }.into_any(),
+        }}
+        {move || {
+            let sum = items_sum().flatten()?;
+            let total = parse_amount(&amount.get()).ok()?;
+            (receipt && sum != total).then(|| view! {
+                <div class="conflict" data-test="mismatch">
+                    <p>{format!("The items add up to {}, but the receipt total is {}.", format_amount(sum), format_amount(total))}</p>
+                    <label class="check">
+                        <input type="checkbox" data-test="confirm-mismatch" prop:checked=move || confirm.get()
+                            on:change=move |e| confirm.set(event_target_checked(&e)) />
+                        "Save it with this difference"
+                    </label>
+                </div>
+            })
         }}
         <div class="row">
             <label>"Currency"<input data-test="f-currency" maxlength="3" autocapitalize="characters" prop:value=move || currency.get() on:input=move |e| currency.set(event_target_value(&e)) /></label>
@@ -641,16 +718,16 @@ pub fn edit(c: Ctx, id: Option<Uuid>) -> impl IntoView {
             })}
         </div>
         <div class="row">
-            <label>"Date"<input type="date" data-test="f-date" prop:value=move || date.get() on:input=move |e| date.set(event_target_value(&e)) /></label>
+            <label class:doubt=doubts.date>"Date"<input type="date" data-test="f-date" prop:value=move || date.get() on:input=move |e| date.set(event_target_value(&e)) /></label>
             <label>"Time"<input type="time" data-test="f-time" prop:value=move || time.get() on:input=move |e| time.set(event_target_value(&e)) /></label>
         </div>
-        <label>"Merchant"
+        <label class:doubt=doubts.merchant>"Merchant"
             <input data-test="f-merchant" list="merchants" autocomplete="off" prop:value=move || merchant.get() on:input=move |e| merchant.set(event_target_value(&e)) />
             <datalist id="merchants">
                 {move || c.data.with(Data::merchant_list).into_iter().map(|(_, m)| view! { <option value=m.name></option> }).collect_view()}
             </datalist>
         </label>
-        <label>"NIP"<input data-test="f-nip" inputmode="numeric" prop:value=move || nip.get() on:input=move |e| nip.set(event_target_value(&e)) /></label>
+        <label class:doubt=doubts.nip>"NIP"<input data-test="f-nip" inputmode="numeric" prop:value=move || nip.get() on:input=move |e| nip.set(event_target_value(&e)) /></label>
         <label>"Category"{category_select(c, category, "f-category")}</label>
         <div class="row">
             <label>"Account"

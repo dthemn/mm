@@ -9,6 +9,7 @@ pub const KIND_TRANSACTION: &str = "transaction";
 pub const KIND_CATEGORY: &str = "category";
 pub const KIND_ACCOUNT: &str = "account";
 pub const KIND_MERCHANT: &str = "merchant";
+pub const KIND_RULE: &str = "rule";
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -122,6 +123,9 @@ pub struct Transaction {
     pub note: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub items: Vec<LineItem>,
+    /// The user saw that the items do not add up to the amount and kept it anyway.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub mismatch_confirmed: bool,
 }
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -191,7 +195,7 @@ impl Transaction {
                 return Err(TxError::ItemTotal(i.name.clone()));
             }
         }
-        if !self.items.is_empty() && self.items_total() != Some(self.amount) {
+        if !self.items.is_empty() && !self.mismatch_confirmed && self.items_total() != Some(self.amount) {
             return Err(TxError::ItemsSum {
                 items: crate::money::format_amount(self.items_total().unwrap_or(0)),
                 amount: crate::money::format_amount(self.amount),
@@ -223,10 +227,27 @@ pub struct Merchant {
     pub nip: Option<String>,
 }
 
+/// A personal correction. A rule without a merchant applies to every shop.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CategoryRule {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub merchant_id: Option<Uuid>,
+    /// The item name in folded form, see `categorize::fold`.
+    pub pattern: String,
+    pub category_id: Uuid,
+}
+
 const fn builtin(n: u128) -> Uuid {
     Uuid::from_u128(0x6d6d0000_0000_4000_8000_000000000000 + n)
 }
 
+pub const CAT_FOOD: Uuid = builtin(0);
+pub const CAT_HOUSEHOLD: Uuid = builtin(1);
+pub const CAT_TRANSPORT: Uuid = builtin(3);
+pub const CAT_HEALTH: Uuid = builtin(4);
+pub const CAT_CLOTHING: Uuid = builtin(5);
+pub const CAT_ENTERTAINMENT: Uuid = builtin(6);
+pub const CAT_CAFES: Uuid = builtin(7);
 pub const CAT_OTHER: Uuid = builtin(8);
 pub const ACCOUNT_MAIN: Uuid = builtin(100);
 
@@ -271,6 +292,7 @@ mod tests {
             review: Review::Reviewed,
             note: String::new(),
             items: vec![],
+            mismatch_confirmed: false,
         }
     }
 
@@ -307,6 +329,7 @@ mod tests {
         t.validate().unwrap();
         let bad = Transaction { amount: 2800, amount_pln: 2800, ..t };
         assert!(matches!(bad.validate(), Err(TxError::ItemsSum { .. })));
+        Transaction { mismatch_confirmed: true, ..bad }.validate().unwrap();
     }
 
     #[test]

@@ -55,3 +55,14 @@ table { width: 100%; border-collapse: collapse; font-size: 15px; margin-top: 8px
 .big-input { font-size: 30px; font-weight: 600; }
 .item { display: flex; flex-direction: column; gap: 8px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
 @media (prefers-color-scheme: dark) { .segmented button.active, button.primary, .tabs .photo { color: #06201d; } .tabs .photo svg { stroke: #06201d; } }
+
+:root { --warn: #b45309; } @media (prefers-color-scheme: dark) { :root { --warn: #f59e0b; } }
+.warn { color: var(--warn); font-weight: 600; font-size: 14px; }
+label.doubt, li.doubt { color: var(--warn); } label.doubt input, li.doubt input { border-color: var(--warn); border-width: 2px; }
+li.doubt { border-left: 3px solid var(--warn); padding-left: 10px; }
+.viewfinder { position: relative; border-radius: 14px; overflow: hidden; background: #000; aspect-ratio: 3 / 4; display: flex; align-items: center; justify-content: center; }
+.viewfinder video { width: 100%; height: 100%; object-fit: cover; display: none; } .viewfinder.live video { display: block; }
+.viewfinder .hint { color: #ddd; padding: 20px; text-align: center; }
+label.button { position: relative; display: flex; align-items: center; justify-content: center; min-height: 44px; border: 1px solid var(--line); border-radius: 10px; color: var(--fg); }
+label.button.disabled { opacity: .5; }
+label.button .file { position: absolute; inset: 0; opacity: 0; min-height: 0; width: 100%; cursor: pointer; }

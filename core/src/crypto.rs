@@ -171,16 +171,24 @@ pub fn verify_phrase_signature(public: &[u8], msg: &[u8], sig: &[u8]) -> Result<
     vk.verify(msg, &sig).map_err(|_| CryptoError::BadSignature)
 }
 
-/// A merchant's record id comes from its name, so offline devices agree on it without
-/// creating duplicates. It is keyed with the DEK because the server sees record ids:
-/// an unkeyed hash would let it test names such as "biedronka" from a dictionary.
-pub fn merchant_id(dek: &Dek, name: &str) -> Uuid {
+/// A record id derived from a name, so offline devices agree on it without creating
+/// duplicates. It is keyed with the DEK because the server sees record ids: an unkeyed
+/// hash would let it test names such as "biedronka" from a dictionary.
+pub fn named_id(dek: &Dek, purpose: &[u8], name: &str) -> Uuid {
     let normalized = Zeroizing::new(crate::model::normalize_name(name));
+    let mut info = purpose.to_vec();
+    info.push(0);
+    info.extend_from_slice(normalized.as_bytes());
     let mut okm = [0u8; 16];
-    Hkdf::<Sha256>::new(Some(b"mm/v1/merchant-id"), dek.expose())
-        .expand(normalized.as_bytes(), &mut okm)
+    Hkdf::<Sha256>::new(Some(b"mm/v1/named-id"), dek.expose())
+        .expand(&info, &mut okm)
         .expect("16 bytes is valid for HKDF-SHA256");
+    info.zeroize();
     uuid::Builder::from_random_bytes(okm).into_uuid()
+}
+
+pub fn merchant_id(dek: &Dek, name: &str) -> Uuid {
+    named_id(dek, b"merchant", name)
 }
 
 /// Message signed with the phrase key. The purpose is part of the message

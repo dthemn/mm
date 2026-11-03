@@ -11,6 +11,10 @@ rm -rf "$OUT"
 mkdir -p "$OUT"
 wasm-bindgen --target web --no-typescript --out-dir "$OUT" --out-name web target/wasm32-unknown-unknown/release/web.wasm
 cp web/static/* "$OUT/"
+web/ocr-assets.sh
+mkdir -p "$OUT/ocr"
+cp web/ocr/cache/det.onnx web/ocr/cache/rec.onnx web/ocr/cache/ort.wasm.min.mjs \
+  web/ocr/cache/ort-wasm-simd-threaded.mjs web/ocr/cache/ort-wasm-simd-threaded.wasm web/ocr/latin_dict.txt "$OUT/ocr/"
 
 sri() { printf 'sha384-%s' "$(openssl dgst -sha384 -binary "$1" | openssl base64 -A)"; }
 
@@ -24,4 +28,4 @@ fill "$OUT/boot.js" -e "s|__WASM_SRI__|$(sri "$OUT/web_bg.wasm")|"
 fill "$OUT/index.html" -e "s|__CSS_SRI__|$(sri "$OUT/app.css")|" -e "s|__JS_SRI__|$(sri "$OUT/web.js")|" -e "s|__BOOT_SRI__|$(sri "$OUT/boot.js")|"
 VERSION=$(cat "$OUT/index.html" "$OUT/boot.js" "$OUT/web.js" "$OUT/web_bg.wasm" | openssl dgst -sha256 -hex | sed 's/.* //' | cut -c1-16)
 fill "$OUT/sw.js" -e "s|__VERSION__|$VERSION|"
-echo "build $VERSION: $(du -sh "$OUT" | cut -f1)"
+echo "build $VERSION: app $(du -sh "$OUT/web_bg.wasm" | cut -f1), recognizer $(du -sh "$OUT/ocr" | cut -f1)"

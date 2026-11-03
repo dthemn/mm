@@ -7,6 +7,7 @@ mod data;
 mod device;
 mod finance;
 mod flows;
+mod scan;
 mod store;
 mod webauthn;
 

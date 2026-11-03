@@ -35,6 +35,7 @@ pub enum Screen {
     /// None creates a new operation.
     Edit(Option<Uuid>),
     Category(Uuid),
+    Scan,
     Settings,
     Manage(finance::Manage),
     Export,
@@ -50,6 +51,8 @@ pub struct Ctx {
     pub status: RwSignal<String>,
     pub issues: RwSignal<Vec<String>>,
     pub filter: finance::FilterState,
+    /// A recognized receipt waiting for review. It never contains the photo.
+    pub draft: StoredValue<Option<finance::Draft>, LocalStorage>,
     phrase: StoredValue<Option<Rc<Phrase>>, LocalStorage>,
     invite: RwSignal<String>,
     label: RwSignal<String>,
@@ -81,6 +84,7 @@ fn lock(c: Ctx) {
         });
     }
     c.data.set(Data::default());
+    c.draft.set_value(None);
     c.phrase.set_value(None);
     c.issues.set(vec![]);
     c.status.set(String::new());
@@ -212,6 +216,7 @@ pub fn App() -> impl IntoView {
         busy: RwSignal::new(false),
         session: RwSignal::new_local(None),
         data: RwSignal::new(Data::default()),
+        draft: StoredValue::new_local(None),
         filter: finance::FilterState::new(Month { year: today().year, month: today().month }),
         status: RwSignal::new(String::new()),
         issues: RwSignal::new(vec![]),
@@ -248,6 +253,7 @@ pub fn App() -> impl IntoView {
                 Screen::Operations => finance::operations(c).into_any(),
                 Screen::Edit(id) => finance::edit(c, id).into_any(),
                 Screen::Category(id) => finance::category(c, id).into_any(),
+                Screen::Scan => crate::scan::scan(c).into_any(),
                 Screen::Settings => settings(c).into_any(),
                 Screen::Manage(m) => finance::manage(c, m).into_any(),
                 Screen::Export => finance::export(c).into_any(),

@@ -1,0 +1,332 @@
+//! From a photo to a draft operation. The photo exists only in memory during recognition:
+//! pixels go to the worker as tensors, and nothing is stored or sent to the server.
+
+use crate::app::{Ctx, Screen, today};
+use crate::finance::{Doubts, Draft};
+use js_sys::{Array, Float32Array, Function, Object, Promise, Reflect};
+use leptos::prelude::*;
+use leptos::task::spawn_local;
+use mm_core::categorize::{categorize, tidy_name};
+use mm_core::crypto::merchant_id;
+use mm_core::model::*;
+use mm_core::ocr::{self, Line, Tensor};
+use mm_core::receipt::{self, Doubt};
+use mm_core::vision::{Gray, prepare};
+use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
+use std::rc::Rc;
+use wasm_bindgen::{JsCast, JsValue, closure::Closure};
+use wasm_bindgen_futures::JsFuture;
+use web_sys::{CanvasRenderingContext2d, HtmlCanvasElement, HtmlVideoElement, MediaStream, MessageEvent, Worker};
+
+/// Long side of the image kept in memory. Larger photos add memory, not accuracy.
+const MAX_SIDE: u32 = 2400;
+
+fn e(x: JsValue) -> String {
+    x.as_string().unwrap_or_else(|| format!("{x:?}"))
+}
+
+type Calls = Rc<RefCell<HashMap<u32, (Function, Function)>>>;
+
+struct Ocr {
+    worker: Worker,
+    calls: Calls,
+    next: Cell<u32>,
+    dict: Vec<String>,
+    _listener: Closure<dyn FnMut(MessageEvent)>,
+}
+
+thread_local! {
+    static OCR: RefCell<Option<Rc<Ocr>>> = const { RefCell::new(None) };
+}
+
+impl Ocr {
+    async fn get() -> Result<Rc<Ocr>, String> {
+        if let Some(o) = OCR.with(|o| o.borrow().clone()) {
+            return Ok(o);
+        }
+        let opts = web_sys::WorkerOptions::new();
+        opts.set_type(web_sys::WorkerType::Module);
+        let worker = Worker::new_with_options("/ocr-worker.js", &opts).map_err(e)?;
+        let calls: Calls = Rc::default();
+        let inbox = calls.clone();
+        let listener = Closure::<dyn FnMut(MessageEvent)>::new(move |m: MessageEvent| {
+            let d = m.data();
+            let id = Reflect::get(&d, &"id".into()).ok().and_then(|v| v.as_f64()).unwrap_or(-1.0) as u32;
+            let Some((ok, fail)) = inbox.borrow_mut().remove(&id) else { return };
+            let err = Reflect::get(&d, &"error".into()).unwrap_or(JsValue::UNDEFINED);
+            let _ = if err.is_undefined() { ok.call1(&JsValue::NULL, &d) } else { fail.call1(&JsValue::NULL, &err) };
+        });
+        worker.set_onmessage(Some(listener.as_ref().unchecked_ref()));
+        let dict = fetch_text("/ocr/latin_dict.txt").await?;
+        let dict: Vec<String> = dict.strip_suffix('\n').unwrap_or(&dict).split('\n').map(str::to_owned).collect();
+        let o = Rc::new(Ocr { worker, calls, next: Cell::new(0), dict, _listener: listener });
+        OCR.with(|c| *c.borrow_mut() = Some(o.clone()));
+        Ok(o)
+    }
+
+    /// Runs `op` ("det" or "rec") and returns the output data and its shape.
+    async fn run(&self, op: &str, t: Option<&Tensor>) -> Result<(Vec<f32>, Vec<usize>), String> {
+        let id = self.next.get();
+        self.next.set(id + 1);
+        let calls = self.calls.clone();
+        let done = Promise::new(&mut |ok, fail| {
+            calls.borrow_mut().insert(id, (ok, fail));
+        });
+        let msg = Object::new();
+        let set = |k: &str, v: &JsValue| Reflect::set(&msg, &k.into(), v).map(|_| ()).map_err(e);
+        set("id", &id.into())?;
+        set("op", &op.into())?;
+        let transfer = Array::new();
+        if let Some(t) = t {
+            let input = Float32Array::from(t.data.as_slice());
+            transfer.push(&input.buffer());
+            set("input", &input)?;
+            set("h", &(t.h as u32).into())?;
+            set("w", &(t.w as u32).into())?;
+        }
+        self.worker.post_message_with_transfer(&msg, &transfer).map_err(e)?;
+        let reply = JsFuture::from(done).await.map_err(|x| format!("recognizer failed: {}", e(x)))?;
+        let data = Reflect::get(&reply, &"data".into()).map_err(e)?;
+        if data.is_undefined() {
+            return Ok((vec![], vec![]));
+        }
+        let dims: Vec<usize> = Array::from(&Reflect::get(&reply, &"dims".into()).map_err(e)?)
+            .iter().map(|d| d.as_f64().unwrap_or(0.0) as usize).collect();
+        Ok((Float32Array::new(&data).to_vec(), dims))
+    }
+}
+
+async fn fetch_text(url: &str) -> Result<String, String> {
+    let win = web_sys::window().ok_or("no window")?;
+    let r: web_sys::Response = JsFuture::from(win.fetch_with_str(url)).await
+        .map_err(|_| "The recognizer could not be downloaded. Connect to the internet once, then it works offline".to_string())?
+        .dyn_into().map_err(e)?;
+    if !r.ok() {
+        return Err(format!("The recognizer could not be downloaded ({})", r.status()));
+    }
+    Ok(JsFuture::from(r.text().map_err(e)?).await.map_err(e)?.as_string().unwrap_or_default())
+}
+
+/// Lets the browser paint progress between heavy steps.
+async fn breathe() {
+    let p = Promise::new(&mut |ok, _| {
+        if let Some(w) = web_sys::window() {
+            let _ = w.set_timeout_with_callback_and_timeout_and_arguments_0(&ok, 0);
+        }
+    });
+    let _ = JsFuture::from(p).await;
+}
+
+pub async fn recognize(gray: Gray, progress: impl Fn(String)) -> Result<Vec<Line>, String> {
+    progress("Preparing the photo…".into());
+    breathe().await;
+    let ocr = Ocr::get().await?;
+    let page = prepare(gray);
+    progress("Finding text…".into());
+    breathe().await;
+    let (prob, dims) = ocr.run("det", Some(&ocr::det_input(&page))).await?;
+    if dims.len() != 4 {
+        return Err("Unexpected detector output".into());
+    }
+    let boxes = ocr::det_boxes(&prob, dims[2], dims[3], page.w, page.h);
+    let mut read = Vec::with_capacity(boxes.len());
+    for (i, b) in boxes.iter().enumerate() {
+        if i % 4 == 0 {
+            progress(format!("Reading line {} of {}…", i + 1, boxes.len()));
+        }
+        let Some(t) = ocr::rec_input(&page, b) else { continue };
+        let (out, d) = ocr.run("rec", Some(&t)).await?;
+        if d.len() == 3 {
+            let (text, conf) = ocr::ctc_decode(&out, d[2], &ocr.dict);
+            read.push((*b, text, conf));
+        }
+    }
+    Ok(ocr::assemble(read))
+}
+
+/// Draws a source into a canvas no larger than `MAX_SIDE` and returns its gray pixels.
+fn pixels(source: &JsValue, w: u32, h: u32) -> Result<Gray, String> {
+    if w == 0 || h == 0 {
+        return Err("The image is empty".into());
+    }
+    let scale = (MAX_SIDE as f64 / w.max(h) as f64).min(1.0);
+    let (cw, ch) = (((w as f64) * scale) as u32, ((h as f64) * scale) as u32);
+    let doc = web_sys::window().and_then(|w| w.document()).ok_or("no document")?;
+    let canvas: HtmlCanvasElement = doc.create_element("canvas").map_err(e)?.dyn_into().map_err(|_| "no canvas")?;
+    canvas.set_width(cw);
+    canvas.set_height(ch);
+    let ctx: CanvasRenderingContext2d = canvas.get_context("2d").map_err(e)?.ok_or("no 2d context")?.dyn_into().map_err(|_| "no 2d context")?;
+    let draw: Function = Reflect::get(&ctx, &"drawImage".into()).map_err(e)?.dyn_into().map_err(|_| "no drawImage")?;
+    let args = Array::of5(source, &0.into(), &0.into(), &cw.into(), &ch.into());
+    draw.apply(&ctx, &args).map_err(e)?;
+    let data = ctx.get_image_data(0.0, 0.0, cw as f64, ch as f64).map_err(e)?;
+    let gray = Gray::from_rgba(&data.data(), cw as usize, ch as usize).ok_or("bad image data")?;
+    // The canvas held the photo, so it is cleared right away.
+    canvas.set_width(0);
+    canvas.set_height(0);
+    Ok(gray)
+}
+
+async fn from_file(input: &web_sys::HtmlInputElement) -> Result<Option<Gray>, String> {
+    let Some(file) = input.files().and_then(|f| f.get(0)) else { return Ok(None) };
+    let win = web_sys::window().ok_or("no window")?;
+    let opts = Object::new();
+    let _ = Reflect::set(&opts, &"imageOrientation".into(), &"from-image".into());
+    let create: Function = Reflect::get(&win, &"createImageBitmap".into()).map_err(e)?.dyn_into().map_err(|_| "no createImageBitmap")?;
+    let p: Promise = create.call2(&win, &file, &opts).map_err(e)?.dyn_into().map_err(|_| "no promise")?;
+    let bitmap: web_sys::ImageBitmap = JsFuture::from(p).await.map_err(|_| "This file is not an image the browser can read".to_string())?.dyn_into().map_err(|_| "no bitmap")?;
+    let g = pixels(&bitmap, bitmap.width(), bitmap.height());
+    bitmap.close();
+    input.set_value("");
+    g.map(Some)
+}
+
+fn draft(c: Ctx, p: &receipt::Parsed) -> Result<Draft, String> {
+    let s = c.session.get_untracked().ok_or("The app is locked")?;
+    let d = c.data.get_untracked();
+    let rules = d.rule_list();
+    let merchant = p.merchant.clone().unwrap_or_default();
+    let mid = (!merchant.is_empty()).then(|| merchant_id(&s.dek, &merchant));
+    let items: Vec<LineItem> = p.items.iter().map(|i| {
+        let name = tidy_name(&i.raw_name);
+        LineItem {
+            raw_name: i.raw_name.clone(),
+            category_id: categorize(&rules, mid, &merchant, &name),
+            name,
+            qty: i.qty,
+            unit: i.unit.clone(),
+            unit_price: i.unit_price,
+            discount: i.discount,
+            total: i.value - i.discount,
+            vat_rate: i.ptu.and_then(|l| p.vat.iter().find(|v| v.letter == l)).and_then(|v| v.rate_bp),
+        }
+    }).collect();
+    let suggested = items.iter().map(|i| i.category_id).collect();
+    let mut counts: HashMap<uuid::Uuid, i64> = HashMap::new();
+    for i in &items {
+        *counts.entry(i.category_id).or_default() += i.total;
+    }
+    let category_id = counts.into_iter().max_by_key(|x| (x.1, x.0)).map(|x| x.0)
+        .unwrap_or_else(|| categorize(&rules, mid, &merchant, ""));
+    let total = p.total.unwrap_or_else(|| p.items_total()).max(0);
+    let doubts = Doubts {
+        merchant: p.doubts.contains(&Doubt::Merchant),
+        nip: p.doubts.contains(&Doubt::Nip) && p.nip.is_some(),
+        date: p.doubts.contains(&Doubt::Date),
+        total: p.doubts.iter().any(|d| matches!(d, Doubt::Total | Doubt::ItemsSum { .. })) || p.doubts.contains(&Doubt::Vat),
+        items: (0..items.len()).map(|i| p.doubts.contains(&Doubt::Item(i))).collect(),
+    };
+    let tx = Transaction {
+        kind: TxKind::Expense,
+        date: p.date.unwrap_or_else(today),
+        time: p.time.clone(),
+        merchant_id: mid,
+        nip: p.nip.clone().filter(|n| valid_nip(n)),
+        amount: total,
+        currency: "PLN".into(),
+        amount_pln: total,
+        payment: p.payment.unwrap_or_default(),
+        account_id: d.account_list().first().map(|a| a.0).unwrap_or(ACCOUNT_MAIN),
+        category_id,
+        source: Source::Receipt,
+        review: if p.doubts.is_empty() { Review::Reviewed } else { Review::NeedsReview },
+        note: String::new(),
+        items,
+        mismatch_confirmed: false,
+    };
+    Ok(Draft { tx, merchant, doubts, suggested })
+}
+
+fn stop(stream: &Option<MediaStream>) {
+    if let Some(s) = stream {
+        for t in s.get_tracks().iter() {
+            if let Ok(t) = t.dyn_into::<web_sys::MediaStreamTrack>() {
+                t.stop();
+            }
+        }
+    }
+}
+
+pub fn scan(c: Ctx) -> impl IntoView {
+    let status = RwSignal::new(String::new());
+    let camera = RwSignal::new(false);
+    let stream: StoredValue<Option<MediaStream>, LocalStorage> = StoredValue::new_local(None);
+    let video = NodeRef::<leptos::html::Video>::new();
+
+    let run = move |gray: Gray| {
+        crate::app::busy_task(c, async move {
+            stream.with_value(stop);
+            camera.set(false);
+            let lines = recognize(gray, move |s| status.set(s)).await?;
+            let parsed = receipt::parse(&lines);
+            if parsed.items.is_empty() && parsed.total.is_none() {
+                status.set(String::new());
+                return Err("No receipt was found in this photo. Try again with the whole receipt in the frame and good light".into());
+            }
+            c.draft.set_value(Some(draft(c, &parsed)?));
+            c.screen.set(Screen::Edit(None));
+            Ok(())
+        });
+    };
+
+    Effect::new(move |_| {
+        let Some(el) = video.get() else { return };
+        spawn_local(async move {
+            let Some(devices) = web_sys::window().and_then(|w| w.navigator().media_devices().ok()) else { return };
+            let c = web_sys::MediaStreamConstraints::new();
+            let v = Object::new();
+            let _ = Reflect::set(&v, &"facingMode".into(), &"environment".into());
+            let _ = Reflect::set(&v, &"width".into(), &js_sys::JSON::parse("{\"ideal\":2560}").unwrap_or(JsValue::NULL));
+            c.set_video(&v);
+            let Ok(p) = devices.get_user_media_with_constraints(&c) else { return };
+            let Ok(s) = JsFuture::from(p).await else { return };
+            let Ok(s) = s.dyn_into::<MediaStream>() else { return };
+            let node: &HtmlVideoElement = &el;
+            node.set_src_object(Some(&s));
+            let _ = node.play();
+            stream.set_value(Some(s));
+            camera.set(true);
+        });
+    });
+    on_cleanup(move || stream.with_value(stop));
+
+    let shoot = move |_| {
+        let Some(el) = video.get_untracked() else { return };
+        let node: &HtmlVideoElement = &el;
+        match pixels(node, node.video_width(), node.video_height()) {
+            Ok(g) => run(g),
+            Err(err) => c.error.set(err),
+        }
+    };
+    let pick = move |ev: leptos::ev::Event| {
+        let Some(input) = ev.target().and_then(|t| t.dyn_into::<web_sys::HtmlInputElement>().ok()) else { return };
+        spawn_local(async move {
+            match from_file(&input).await {
+                Ok(Some(g)) => run(g),
+                Ok(None) => {}
+                Err(err) => c.error.set(err),
+            }
+        });
+    };
+
+    view! {
+        <header class="row">
+            <h1>"Scan a receipt"</h1>
+            <button data-test="scan-manual" on:click=move |_| c.screen.set(Screen::Edit(None))>"Enter by hand"</button>
+        </header>
+        <div class="viewfinder" class:live=move || camera.get()>
+            <video node_ref=video autoplay=true playsinline=true muted=true data-test="scan-video"></video>
+            {move || (!camera.get() && !c.busy.get()).then(|| view! {
+                <p class="hint">"The camera is not available. Choose a photo instead."</p>
+            })}
+        </div>
+        <p class="hint" data-test="scan-status">{move || status.get()}</p>
+        <button class="primary" data-test="shutter" disabled=move || !camera.get() || c.busy.get() on:click=shoot>"Take photo"</button>
+        <label class="button" class:disabled=move || c.busy.get()>
+            "Choose a photo"
+            <input type="file" accept="image/*" data-test="scan-file" class="file" on:change=pick disabled=move || c.busy.get() />
+        </label>
+        <p class="hint">"Recognition runs on this phone. The photo is never stored or sent anywhere."</p>
+    }
+}

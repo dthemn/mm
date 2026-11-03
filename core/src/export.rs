@@ -108,7 +108,7 @@ mod tests {
             kind: TxKind::Expense, date: Date::new(2026, 10, 31).unwrap(), time: Some("10:44".into()), merchant_id: None,
             nip: None, amount: 123456, currency: "PLN".into(), amount_pln: 123456, payment: Payment::Card,
             account_id: ACCOUNT_MAIN, category_id: CAT_OTHER, source: Source::Manual, review: Review::Reviewed,
-            note: note.into(), items: vec![],
+            note: note.into(), items: vec![], mismatch_confirmed: false,
         }
     }
 

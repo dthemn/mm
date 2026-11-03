@@ -4,10 +4,14 @@
 
 pub mod analytics;
 pub mod api;
+pub mod categorize;
 pub mod crypto;
 pub mod date;
 pub mod export;
 pub mod model;
 pub mod money;
+pub mod ocr;
+pub mod receipt;
 pub mod record;
 pub mod sync;
+pub mod vision;

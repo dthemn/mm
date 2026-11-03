@@ -185,7 +185,7 @@ mod tests {
         (Uuid::new_v4(), Transaction {
             kind, date, time: None, merchant_id: None, nip: None, amount, currency: "PLN".into(), amount_pln: amount,
             payment: Payment::Card, account_id: ACCOUNT_MAIN, category_id: cat, source: Source::Manual,
-            review: Review::Reviewed, note: String::new(), items: vec![],
+            review: Review::Reviewed, note: String::new(), items: vec![], mismatch_confirmed: false,
         })
     }
 
