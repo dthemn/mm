@@ -23,7 +23,7 @@ const nbp = createServer((q, r) => {
   r.end(JSON.stringify({ table: "A", code: "EUR", rates: [{ no: "1/A/NBP/2026", effectiveDate: "2026-10-29", mid: 4.3012 }] }));
 }).listen(18090);
 const env = { ...process.env, DATABASE_URL: dbUrl, RP_ID: "localhost", ORIGIN, STATIC_DIR: join(root, "web/dist"),
-  LISTEN: `127.0.0.1:${PORT}`, AUTH_PER_MINUTE: "600", RUST_LOG: "warn", NBP_URL: "http://127.0.0.1:18090" };
+  LISTEN: `0.0.0.0:${PORT}`, AUTH_PER_MINUTE: "600", RUST_LOG: "warn", NBP_URL: "http://127.0.0.1:18090" };
 
 const sql = (q, db = "mm") => execFileSync("docker", ["exec", "mm-db-1", "psql", "-U", "mm", "-d", db, "-At", "-c", q]).toString();
 sql(`CREATE DATABASE ${dbName}`);
@@ -881,6 +881,21 @@ await test("signing out erases the local copy, server data stays", async () => {
   const names = await tablet.page.evaluate(async () => (await indexedDB.databases()).map((d) => d.name));
   ok(!names.some((n) => n.startsWith("mm-") && n !== "mm-device"), `local databases: ${names}`);
   ok(+sql("SELECT count(*) FROM records", dbName) > 0, "records are still on the server");
+});
+
+await test("over plain HTTP from another device the app explains instead of failing", async () => {
+  const { networkInterfaces } = await import("node:os");
+  const lan = Object.values(networkInterfaces()).flat().find((a) => a.family === "IPv4" && !a.internal);
+  if (!lan) {
+    console.log("     skipped: this computer has no network address");
+    return;
+  }
+  const d = await Device.open("lan-phone");
+  await d.page.goto(`http://${lan.address}:${PORT}/`, { waitUntil: "load" });
+  ok(!(await d.page.evaluate(() => isSecureContext)), "the page really is insecure");
+  await d.page.waitForSelector(q("insecure"));
+  ok(!(await d.page.$(q("go-register"))) && !(await d.page.$(q("login"))), "nothing that would fail is offered");
+  await d.close();
 });
 
 await test("strict CSP and SRI: no violations, no inline scripts", async () => {

@@ -21,6 +21,8 @@ const CONFIRM_WORDS: usize = 3;
 #[derive(Clone, PartialEq)]
 pub enum Screen {
     Loading,
+    /// Opened over plain HTTP from another device: the browser disables what the app needs.
+    Insecure,
     Welcome,
     Invite,
     Warning,
@@ -230,7 +232,14 @@ pub fn App() -> impl IntoView {
         hidden_at: StoredValue::new(None),
     };
     watchers(c);
+    let secure = web_sys::window().is_some_and(|w| w.is_secure_context());
+    if !secure {
+        c.screen.set(Screen::Insecure);
+    }
     spawn_local(async move {
+        if !secure {
+            return;
+        }
         let known = match Kv::open().await {
             Ok(kv) => device::users(&kv).await.map(|u| !u.is_empty()).unwrap_or(false),
             Err(_) => false,
@@ -243,6 +252,7 @@ pub fn App() -> impl IntoView {
             {move || (!c.error.get().is_empty()).then(|| view! { <p class="error" data-test="error">{c.error.get()}</p> })}
             {move || match c.screen.get() {
                 Screen::Loading => view! { <p>"Loading…"</p> }.into_any(),
+                Screen::Insecure => insecure().into_any(),
                 Screen::Welcome => welcome(c).into_any(),
                 Screen::Invite => invite(c).into_any(),
                 Screen::Warning => warning(c).into_any(),
@@ -264,6 +274,16 @@ pub fn App() -> impl IntoView {
             }}
         </main>
         {move || c.session.with(Option::is_some).then(|| finance::nav(c))}
+    }
+}
+
+fn insecure() -> impl IntoView {
+    let here = web_sys::window().and_then(|w| w.location().href().ok()).unwrap_or_default();
+    view! {
+        <h1>"Open the app over HTTPS"</h1>
+        <p data-test="insecure">"This address is not secure: "<strong>{here}</strong></p>
+        <p>"On such a page the browser turns off passkeys, the camera, offline mode and safe storage, so the app cannot keep your data safe."</p>
+        <p>"On this computer, open "<strong>"http://localhost:8080"</strong>". On a phone, use an address that starts with https://, as described in docs/DEPLOY.md."</p>
     }
 }
 

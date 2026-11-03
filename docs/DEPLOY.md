@@ -7,6 +7,29 @@ It takes about 15 minutes, most of it waiting for the first build.
 > Keep real data in it only if you accept that losing the server means losing the server copy.
 > Your phone keeps its own encrypted copy, which syncs back when the server returns.
 
+## Trying it on a phone without a VPS
+
+A phone cannot use `http://<computer IP>:8080`: on a plain HTTP page the browser turns off passkeys, the camera
+and safe storage, and the app shows a warning instead. Passkeys also need a domain name, never an IP address.
+A temporary HTTPS address from Cloudflare solves both, for free and without an account:
+
+```sh
+brew install cloudflared                       # once, on the computer that runs the app
+docker compose up --build -d
+cloudflared tunnel --url http://localhost:8080
+```
+
+It prints an address like `https://quiet-river-1234.trycloudflare.com`. Restart the app with that name,
+in a second terminal, then open the address on the phone:
+
+```sh
+RP_ID=quiet-river-1234.trycloudflare.com ORIGIN=https://quiet-river-1234.trycloudflare.com docker compose up -d
+```
+
+Limits: the address changes each time `cloudflared` starts, and a passkey made for one address does not work
+on the next. Cloudflare carries the traffic, which it can see only as ciphertext, and anyone with the address
+reaches the login page, though registration still needs an invite. Use it for testing, then deploy as below.
+
 ## What you need
 
 - A VPS in the EU with at least 2 GB of RAM and 10 GB of disk, running Ubuntu 24.04 or Debian 12.

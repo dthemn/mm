@@ -21,8 +21,9 @@ services:
     build: .
     environment:
       DATABASE_URL: postgres://mm:mm-local@db:5432/mm
-      RP_ID: localhost
-      ORIGIN: http://localhost:8080
+      # For a phone test through an HTTPS tunnel, set both to the tunnel's address (docs/DEPLOY.md).
+      RP_ID: ${RP_ID:-localhost}
+      ORIGIN: ${ORIGIN:-http://localhost:8080}
     ports:
       - "127.0.0.1:8080:8080"
     depends_on:

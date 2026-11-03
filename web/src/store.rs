@@ -34,9 +34,15 @@ impl Drop for WebLock {
     }
 }
 
+pub const INSECURE: &str = "This page is not secure, so the browser blocks saving, passkeys and the camera. Open the app over HTTPS";
+
 pub async fn web_lock(name: &str) -> Result<WebLock, String> {
     let win = web_sys::window().ok_or("no window")?;
     let locks = Reflect::get(&win.navigator(), &"locks".into()).map_err(e)?;
+    // Browsers expose Web Locks only on secure pages (HTTPS or localhost).
+    if !locks.is_object() {
+        return Err(INSECURE.into());
+    }
     let request: Function = Reflect::get(&locks, &"request".into()).map_err(e)?.dyn_into().map_err(e)?;
 
     let mut release = None;
