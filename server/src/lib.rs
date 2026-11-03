@@ -79,6 +79,7 @@ pub fn router(db: PgPool, cfg: &Config) -> Router {
     let per_ms = (60_000 / cfg.auth_per_minute.max(1)).max(1) as u64;
     let burst = cfg.auth_per_minute.clamp(1, 1000);
     let auth = Router::new()
+        .route("/invite/check", post(auth::invite_check))
         .route("/register/start", post(auth::register_start))
         .route("/register/finish", post(auth::register_finish))
         .route("/login/start", post(auth::login_start))

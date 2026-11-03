@@ -54,7 +54,7 @@ class Device {
   sent = [];
   errors = [];
 
-  static async open(name, { prf = true } = {}) {
+  static async open(name, { prf = true, presence = true } = {}) {
     const d = new Device();
     d.name = name;
     d.ctx = await browser.createBrowserContext();
@@ -70,7 +70,7 @@ class Device {
     await d.cdp.send("WebAuthn.enable");
     const { authenticatorId } = await d.cdp.send("WebAuthn.addVirtualAuthenticator", { options: {
       protocol: "ctap2", ctap2Version: "ctap2_1", transport: "internal", hasResidentKey: true,
-      hasUserVerification: true, isUserVerified: true, automaticPresenceSimulation: true, hasPrf: prf,
+      hasUserVerification: true, isUserVerified: true, automaticPresenceSimulation: presence, hasPrf: prf,
     } });
     d.auth = authenticatorId;
     await d.page.goto(ORIGIN, { waitUntil: "load" });
@@ -158,9 +158,10 @@ class Device {
     if (!ok) throw new Error(`no option ${label} in ${t}`);
   }
 
-  async register() {
+  async register({ stopAtPasskey = false, code = invite() } = {}) {
+    this.invite = code;
     await this.click("go-register");
-    await this.type("invite", invite());
+    await this.type("invite", code);
     await this.type("label", this.name);
     await this.click("invite-next");
     await this.click("accept");
@@ -175,6 +176,7 @@ class Device {
       await f.type(words[pos]);
     }
     await this.click("confirm-next");
+    if (stopAtPasskey) return words;
     await this.click("create-passkey");
     await this.page.waitForSelector(q("dash-balance"), { timeout: 15000 });
     return words;
@@ -881,6 +883,39 @@ await test("signing out erases the local copy, server data stays", async () => {
   const names = await tablet.page.evaluate(async () => (await indexedDB.databases()).map((d) => d.name));
   ok(!names.some((n) => n.startsWith("mm-") && n !== "mm-device"), `local databases: ${names}`);
   ok(+sql("SELECT count(*) FROM records", dbName) > 0, "records are still on the server");
+});
+
+await test("a passkey window that never answers can be cancelled and tried again", async () => {
+  const d = await Device.open("silent", { presence: false });
+  await d.register({ stopAtPasskey: true });
+  ok(await d.page.$eval(q("passkey-wait"), (e) => e.hidden), "no waiting note before the tap");
+  await d.click("create-passkey");
+  await d.page.waitForSelector(`${q("passkey-wait")}:not([hidden])`);
+  await d.click("passkey-cancel");
+  await d.page.waitForFunction(() => document.querySelector(".error")?.textContent.includes("cancelled"));
+  ok(await d.page.$eval(q("passkey-cancel"), (e) => e.hidden), "the cancel button goes away");
+  await d.cdp.send("WebAuthn.setAutomaticPresenceSimulation", { authenticatorId: d.auth, enabled: true });
+  await d.click("create-passkey");
+  await d.page.waitForSelector(q("dash-balance"), { timeout: 15000 });
+  await d.close();
+});
+
+await test("an invite works once: it is deleted when the account is created", async () => {
+  const a = await Device.open("first");
+  await a.register();
+  const code = a.invite;
+  await a.close();
+  const b = await Device.open("second");
+  await b.click("go-register");
+  await b.type("invite", code);
+  await b.click("invite-next");
+  await b.page.waitForFunction(() => document.querySelector(".error")?.textContent.includes("already used"));
+  ok(!(await b.page.$(q("accept"))), "the wrong invite does not get past the first step");
+  await b.type("invite", "no-such-invite");
+  await b.click("invite-next");
+  await b.page.waitForFunction(() => document.querySelector(".error")?.textContent.includes("wrong"));
+  await b.close();
+  eq(sql("SELECT count(*) FROM invites WHERE used_at IS NOT NULL", dbName).trim(), "0", "used invites are deleted, not kept");
 });
 
 await test("over plain HTTP from another device the app explains instead of failing", async () => {

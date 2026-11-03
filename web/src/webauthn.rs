@@ -77,6 +77,62 @@ fn credentials() -> Result<web_sys::CredentialsContainer, String> {
     Ok(web_sys::window().ok_or("no window")?.navigator().credentials())
 }
 
+/// How long the passkey window may take. Safari can wait forever without showing anything,
+/// for example on a page whose certificate the phone does not trust.
+const LIMIT_MS: i32 = 90_000;
+
+pub const STALLED: &str = "The passkey window did not open. On a phone this usually means the page certificate \
+    is not trusted: open the app at a real https address (see docs/DEPLOY.md), not a self-signed one";
+
+thread_local! {
+    static PENDING: std::cell::RefCell<Option<web_sys::AbortController>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Stops a passkey request that is waiting, as if the user had closed the window.
+pub fn cancel() {
+    PENDING.with(|p| {
+        if let Some(c) = p.borrow_mut().take() {
+            c.abort();
+        }
+    });
+}
+
+/// Runs one credentials request with a cancel signal and a time limit.
+async fn ask(opts: &JsValue, call: impl FnOnce(&web_sys::CredentialsContainer) -> Result<js_sys::Promise, JsValue>)
+    -> Result<JsValue, String> {
+    use std::{cell::Cell, rc::Rc};
+    use wasm_bindgen::closure::Closure;
+    let ctl = web_sys::AbortController::new().map_err(e)?;
+    set(opts, "signal", &ctl.signal())?;
+    let stalled = Rc::new(Cell::new(false));
+    let (flag, timer_ctl) = (stalled.clone(), ctl.clone());
+    let timer = Closure::once(move || {
+        flag.set(true);
+        timer_ctl.abort();
+    });
+    let w = web_sys::window().ok_or("no window")?;
+    let id = w
+        .set_timeout_with_callback_and_timeout_and_arguments_0(timer.as_ref().unchecked_ref(), LIMIT_MS)
+        .map_err(e)?;
+    PENDING.with(|p| *p.borrow_mut() = Some(ctl));
+    let out = match call(&credentials()?) {
+        Ok(p) => JsFuture::from(p).await,
+        Err(x) => Err(x),
+    };
+    w.clear_timeout_with_handle(id);
+    PENDING.with(|p| p.borrow_mut().take());
+    drop(timer);
+    out.map_err(|x| {
+        if stalled.get() {
+            STALLED.into()
+        } else if get(&x, "name").as_string().as_deref() == Some("AbortError") {
+            "The passkey request was cancelled".into()
+        } else {
+            e(x)
+        }
+    })
+}
+
 fn prf_output(cred: &JsValue) -> (bool, Option<Vec<u8>>) {
     let results = get(cred, "getClientExtensionResults")
         .dyn_ref::<Function>()
@@ -115,7 +171,7 @@ pub async fn create(options: &Value) -> Result<Created, String> {
 
     let opts = web_sys::CredentialCreationOptions::from(JsValue::from(Object::new()));
     set(&opts, "publicKey", &pk)?;
-    let cred = JsFuture::from(credentials()?.create_with_options(&opts).map_err(e)?).await.map_err(e)?;
+    let cred = ask(&opts, |c| c.create_with_options(&opts)).await?;
     let resp = get(&cred, "response");
     let raw_id = bytes(&get(&cred, "rawId"));
     let (prf_enabled, prf_output) = prf_output(&cred);
@@ -176,7 +232,7 @@ pub async fn get_assertion(options: Option<&Value>, only: Option<&[u8]>) -> Resu
 
     let opts = web_sys::CredentialRequestOptions::from(JsValue::from(Object::new()));
     set(&opts, "publicKey", &pk)?;
-    let cred = JsFuture::from(credentials()?.get_with_options(&opts).map_err(e)?).await.map_err(e)?;
+    let cred = ask(&opts, |c| c.get_with_options(&opts)).await?;
     let resp = get(&cred, "response");
     let raw_id = bytes(&get(&cred, "rawId"));
     let user_handle = bytes(&get(&resp, "userHandle"));

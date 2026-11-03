@@ -409,7 +409,18 @@ async fn registration_requires_a_valid_invite() {
     let good = invite::create(&c.db, 1).await.unwrap();
     assert_eq!(start(good).await, 200);
     let expired = invite::create(&c.db, -1).await.unwrap();
-    assert_eq!(start(expired).await, 400);
+    assert_eq!(start(expired.clone()).await, 400);
+
+    let check = |code: String| {
+        let (h, u) = (http.clone(), c.url.clone());
+        async move {
+            h.post(format!("{u}/api/auth/invite/check"))
+                .json(&InviteCheckReq { invite: code }).send().await.unwrap().status()
+        }
+    };
+    assert_eq!(check(invite::create(&c.db, 1).await.unwrap()).await, 204);
+    assert_eq!(check(expired).await, 400);
+    assert_eq!(check("no such invite".into()).await, 400);
 }
 
 #[tokio::test]

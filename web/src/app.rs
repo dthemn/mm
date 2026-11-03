@@ -297,6 +297,11 @@ fn welcome(c: Ctx) -> impl IntoView {
 }
 
 fn invite(c: Ctx) -> impl IntoView {
+    let next = move |_| busy_task(c, async move {
+        flows::check_invite(&c.invite.get_untracked()).await?;
+        c.screen.set(Screen::Warning);
+        Ok(())
+    });
     view! {
         <h1>"New account"</h1>
         <label>"Invite"
@@ -308,8 +313,8 @@ fn invite(c: Ctx) -> impl IntoView {
                 on:input=move |e| c.label.set(event_target_value(&e)) />
         </label>
         <p class="hint">"The name is shown only in the passkey list. The server does not store it."</p>
-        <button class="primary" data-test="invite-next" disabled=move || c.invite.get().trim().is_empty()
-            on:click=move |_| c.screen.set(Screen::Warning)>"Next"</button>
+        <button class="primary" data-test="invite-next" disabled=move || c.busy.get() || c.invite.get().trim().is_empty()
+            on:click=next>"Next"</button>
         <button on:click=move |_| c.screen.set(Screen::Welcome)>"Back"</button>
     }
 }
@@ -388,6 +393,14 @@ fn confirm_phrase(c: Ctx) -> impl IntoView {
     }
 }
 
+/// Shown while a passkey request runs, so a window that never opens does not look like a frozen app.
+fn waiting(c: Ctx) -> impl IntoView {
+    view! {
+        <p class="hint" data-test="passkey-wait" hidden=move || !c.busy.get()>"Waiting for the passkey window…"</p>
+        <button data-test="passkey-cancel" hidden=move || !c.busy.get() on:click=move |_| crate::webauthn::cancel()>"Cancel"</button>
+    }
+}
+
 fn passkey(c: Ctx) -> impl IntoView {
     let create = move |_| busy_task(c, async move {
         let phrase = c.phrase.with_value(|p| p.clone()).ok_or("phrase not found")?;
@@ -401,6 +414,7 @@ fn passkey(c: Ctx) -> impl IntoView {
         <h1>"Create a passkey"</h1>
         <p>"You will sign in with Face ID, a fingerprint or the device code."</p>
         <button class="primary" data-test="create-passkey" disabled=move || c.busy.get() on:click=create>"Create passkey"</button>
+        {waiting(c)}
     }
 }
 
@@ -415,6 +429,7 @@ fn locked(c: Ctx) -> impl IntoView {
     view! {
         <h1>"mm"</h1>
         <button class="primary" data-test="login" disabled=move || c.busy.get() on:click=unlock>"Sign in with passkey"</button>
+        {waiting(c)}
         <button data-test="go-recover" on:click=move |_| { c.error.set(String::new()); c.screen.set(Screen::Phrase(false)) }>"I lost my passkey"</button>
         <button on:click=move |_| { c.error.set(String::new()); c.screen.set(Screen::Welcome) }>"Create account"</button>
     }

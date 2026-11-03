@@ -77,7 +77,7 @@ docker compose -f compose.dev.yml up -d        # throwaway test DB on 127.0.0.1:
 cargo test -p mm-core                          # 148 tests
 cargo test -p mm-server                        # 21 tests, needs the test DB
 web/build.sh && cargo build -p mm-server
-node e2e/run.mjs > /tmp/e2e.log 2>&1           # 41 tests; write to a file, never pipe into head or tail
+node e2e/run.mjs > /tmp/e2e.log 2>&1           # 44 tests; write to a file, never pipe into head or tail
 LIMIT=90000 node e2e/scan.mjs                  # real receipts in samples/receipts, prints scores only
 SHOW=1 ...                                     # also prints recognized lines (sets localStorage.mmDebug)
 docker compose up --build -d                   # whole app on http://localhost:8080 (use localhost, not 127.0.0.1)
@@ -94,6 +94,9 @@ Gotchas learned the hard way:
   `HTTP_PORT=8088 HTTPS_PORT=8443 PUBLIC_ORIGIN=https://localhost:8443` in `deploy/.env`.
 - The production compose project is `mm-prod`; the dev one is `mm`. They used to collide.
 - The auto-mode safety check blocks `git reset --hard`. Resolve merges by hand instead.
+- iPhone needs a real https address with a domain: plain http on a LAN IP disables passkeys, the camera and Web Locks,
+  and Safari can wait forever without a passkey sheet on a certificate it does not trust (hence the 90 s limit).
+- An invite is deleted when registration finishes, and checked on the invite step via `/api/auth/invite/check`.
 
 ## Data and privacy rules
 

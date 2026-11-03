@@ -23,6 +23,11 @@ impl<'de> Deserialize<'de> for B64 {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct InviteCheckReq {
+    pub invite: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct RegisterStartReq {
     pub invite: String,
     /// Passkey label on the device. Never stored on the server.
