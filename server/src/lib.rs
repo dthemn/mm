@@ -5,6 +5,7 @@
 pub mod auth;
 pub mod error;
 pub mod invite;
+pub mod rates;
 pub mod sync;
 
 use axum::http::{HeaderName, HeaderValue, header};
@@ -32,12 +33,17 @@ pub struct Config {
     pub behind_proxy: bool,
     /// Login requests per minute from one address.
     pub auth_per_minute: u32,
+    /// Base URL of the NBP API, replaceable in tests.
+    pub nbp_url: String,
 }
 
 pub struct App {
     pub db: PgPool,
     pub webauthn: Webauthn,
     pub secure_cookie: bool,
+    pub http: reqwest::Client,
+    pub nbp_url: String,
+    pub rates: rates::Cache,
 }
 
 pub type State = axum::extract::State<Arc<App>>;
@@ -61,7 +67,14 @@ pub fn router(db: PgPool, cfg: &Config) -> Router {
         .build()
         .expect("could not create WebAuthn");
     let secure = origin.scheme() == "https";
-    let app = Arc::new(App { db, webauthn, secure_cookie: secure });
+    let app = Arc::new(App {
+        db,
+        webauthn,
+        secure_cookie: secure,
+        http: reqwest::Client::builder().user_agent("mm").build().expect("HTTP client"),
+        nbp_url: cfg.nbp_url.trim_end_matches('/').to_string(),
+        rates: rates::Cache::default(),
+    });
 
     let per_ms = (60_000 / cfg.auth_per_minute.max(1)).max(1) as u64;
     let burst = cfg.auth_per_minute.clamp(1, 1000);
@@ -93,6 +106,7 @@ pub fn router(db: PgPool, cfg: &Config) -> Router {
         .route("/account/delete", post(auth::delete_account))
         .route("/sync/pull", get(sync::pull))
         .route("/sync/push", post(sync::push))
+        .route("/rates/{code}/{year}/{quarter}", get(rates::get))
         .layer(SetResponseHeaderLayer::overriding(
             header::CACHE_CONTROL,
             HeaderValue::from_static("no-store"),

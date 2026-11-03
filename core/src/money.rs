@@ -121,6 +121,25 @@ pub fn line_value(qty: Qty, unit_price: i64) -> Option<i64> {
     i64::try_from((exact + 500) / 1000).ok()
 }
 
+/// "4,3012"
+pub fn format_rate(e4: i64) -> String {
+    format!("{},{:04}", e4 / 10000, e4 % 10000)
+}
+
+/// An exchange rate such as "4.3012" as an integer number of ten-thousandths.
+pub fn parse_rate(s: &str) -> Option<i64> {
+    parse_fixed(s, 4).ok().filter(|r| *r > 0)
+}
+
+/// Converts `minor` units at an exchange rate given in ten-thousandths (NBP publishes four decimals),
+/// rounding half up to a whole grosz.
+pub fn convert(minor: i64, rate_e4: i64) -> Option<i64> {
+    if minor < 0 || rate_e4 <= 0 {
+        return None;
+    }
+    i64::try_from((minor as i128 * rate_e4 as i128 + 5000) / 10000).ok()
+}
+
 /// Splits `total` in proportion to `weights` so the parts add up to exactly `total`.
 /// Leftover grosze go to the largest remainders, and ties go to the earliest part.
 pub fn allocate(total: i64, weights: &[i64]) -> Vec<i64> {
@@ -229,6 +248,24 @@ mod tests {
         assert_eq!(line_value(q("3"), 800), Some(2400));
         assert_eq!(line_value(q("1"), -1), None);
         assert_eq!(line_value(Qty(i64::MAX), i64::MAX), None);
+    }
+
+    #[test]
+    fn rates_parse_without_floats() {
+        assert_eq!(parse_rate("4.3012"), Some(43012));
+        assert_eq!(parse_rate("0.0371"), Some(371));
+        assert_eq!(parse_rate("4.30125"), None);
+        assert_eq!(parse_rate("0"), None);
+    }
+
+    #[test]
+    fn conversion_is_exact_and_rounds_half_up() {
+        assert_eq!(convert(1000, 43012), Some(4301)); // 10,00 EUR at 4.3012 = 43,012 PLN
+        assert_eq!(convert(1050, 43050), Some(4520)); // 45,2025
+        assert_eq!(convert(1, 5000), Some(1)); // 0,5 grosz rounds up
+        assert_eq!(convert(1, 4999), Some(0));
+        assert_eq!(convert(-1, 40000), None);
+        assert_eq!(convert(i64::MAX, i64::MAX), None);
     }
 
     #[test]

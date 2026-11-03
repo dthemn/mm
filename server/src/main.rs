@@ -29,6 +29,7 @@ async fn main() {
         static_dir: env::var("STATIC_DIR").ok().map(Into::into),
         behind_proxy: env::var("BEHIND_PROXY").is_ok_and(|v| v == "1"),
         auth_per_minute: env::var("AUTH_PER_MINUTE").ok().and_then(|v| v.parse().ok()).unwrap_or(30),
+        nbp_url: env::var("NBP_URL").unwrap_or_else(|_| "https://api.nbp.pl".into()),
     };
     mm_server::spawn_sweeper(db.clone());
     let addr: SocketAddr = env::var("LISTEN").unwrap_or_else(|_| "127.0.0.1:8080".into()).parse().expect("invalid LISTEN");

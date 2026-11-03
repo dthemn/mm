@@ -1,0 +1,10 @@
+#Klient;
+#Test Testowy;
+
+#Data operacji;#Opis operacji;#Rachunek;#Kategoria;#Kwota;#Waluta;
+2026-11-01;"SKLEP TESTOWY WARSZAWA";Konto;Zakupy;-38,86;PLN;
+2026-10-30;"RYANAIR";Konto;Podróże;-10,00;EUR;
+2026-10-28;"PRZELEW WŁASNY";Konto;Przelewy;-200,00;PLN;
+2026-08-05;"NETFLIX.COM";Konto;Rozrywka;-43,00;PLN;
+2026-09-05;"NETFLIX.COM";Konto;Rozrywka;-43,00;PLN;
+2026-10-05;"NETFLIX.COM";Konto;Rozrywka;-43,00;PLN;

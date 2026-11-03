@@ -42,7 +42,7 @@ pub fn to_csv(txs: &[Tx], l: &Lookup) -> String {
     for (_, t) in sorted {
         let merchant = t.merchant_id.and_then(|m| l.merchants.get(&m)).map(|m| m.name.as_str()).unwrap_or("");
         let head = [
-            if t.kind == TxKind::Income { "income" } else { "expense" }.to_string(),
+            match t.kind { TxKind::Income => "income", TxKind::Expense => "expense", TxKind::Transfer => "transfer" }.to_string(),
             t.date.iso(),
             t.time.clone().unwrap_or_default(),
             merchant.to_string(),
@@ -108,7 +108,7 @@ mod tests {
             kind: TxKind::Expense, date: Date::new(2026, 10, 31).unwrap(), time: Some("10:44".into()), merchant_id: None,
             nip: None, amount: 123456, currency: "PLN".into(), amount_pln: 123456, payment: Payment::Card,
             account_id: ACCOUNT_MAIN, category_id: CAT_OTHER, source: Source::Manual, review: Review::Reviewed,
-            note: note.into(), items: vec![], mismatch_confirmed: false,
+            note: note.into(), items: vec![], mismatch_confirmed: false, duplicate_of: None, unique_confirmed: false,
         }
     }
 

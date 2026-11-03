@@ -29,6 +29,7 @@ tower_governor = "0.8"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 url = "2"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 webauthn-rs = { version = "0.6", features = ["danger-allow-state-serialisation", "conditional-ui"] }
 
 [dev-dependencies]

@@ -252,6 +252,8 @@ fn draft(c: Ctx, p: &receipt::Parsed) -> Result<Draft, String> {
         note: String::new(),
         items,
         mismatch_confirmed: false,
+        duplicate_of: None,
+        unique_confirmed: false,
     };
     Ok(Draft { tx, merchant, doubts, suggested })
 }

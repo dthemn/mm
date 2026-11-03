@@ -131,3 +131,16 @@ pub struct PushResp {
 pub struct ApiError {
     pub error: String,
 }
+
+/// One NBP average rate (table A). `rate_e4` is the rate in ten-thousandths: 4.3012 is 43012.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Rate {
+    pub date: String,
+    pub rate_e4: i64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RatesResp {
+    pub currency: String,
+    pub rates: Vec<Rate>,
+}

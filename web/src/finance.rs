@@ -11,7 +11,7 @@ use mm_core::crypto::{merchant_id, named_id};
 use mm_core::date::{Date, Month};
 use mm_core::export::{self, Lookup};
 use mm_core::model::*;
-use mm_core::money::{Qty, amount_input, format_amount, format_money, line_value, parse_amount};
+use mm_core::money::{Qty, amount_input, convert, format_amount, format_money, line_value, parse_amount};
 use mm_core::record::{FIELD_DELETED, FieldConflict};
 use serde_json::{Value, json};
 use uuid::Uuid;
@@ -118,6 +118,14 @@ fn banners(c: Ctx) -> impl IntoView {
     view! {
         <p class="hint" data-test="status">{move || c.status.get()}</p>
         {move || c.issues.get().into_iter().map(|i| view! { <p class="error" data-test="issue">{i}</p> }).collect_view()}
+        {move || {
+            let n = c.data.with(crate::import::pending);
+            (n > 0).then(|| view! {
+                <button class="warn-button" data-test="dup-banner" on:click=move |_| c.screen.set(Screen::Duplicates)>
+                    {format!("Possible duplicates to review: {n}")}
+                </button>
+            })
+        }}
         {move || {
             let n = c.data.with(Data::conflicts);
             (n > 0).then(|| view! { <p class="error" data-test="conflict-banner">{format!("Operations to review: {n}. They changed on two devices.")}</p> })
@@ -248,7 +256,7 @@ fn tx_row(c: Ctx, d: &Data, id: Uuid, t: &Transaction) -> impl IntoView + use<> 
         if t.note.is_empty() { d.category_name(t.category_id) } else { t.note.clone() }
     });
     let income = t.kind == TxKind::Income;
-    let sign = if income { "+" } else { "−" };
+    let sign = match t.kind { TxKind::Income => "+", TxKind::Expense => "−", TxKind::Transfer => "⇄ " };
     let amount = format!("{sign}{}", format_money(t.amount, &t.currency));
     let second = (t.currency != "PLN").then(|| pln(t.amount_pln));
     view! {
@@ -258,6 +266,8 @@ fn tx_row(c: Ctx, d: &Data, id: Uuid, t: &Transaction) -> impl IntoView + use<> 
                     <span class="name" data-test="tx-title">{title}</span>
                     <span class="hint">{t.date.display()}" · "{d.category_name(t.category_id)}</span>
                     {meta.pending.then(|| view! { <span class="hint" data-test="pending">"Waiting to send"</span> })}
+                    {t.duplicate_of.is_some().then(|| view! { <span class="hint" data-test="tx-linked">"Recorded by a receipt, not counted"</span> })}
+                    {(t.kind == TxKind::Transfer).then(|| view! { <span class="hint">"Transfer, not counted"</span> })}
                     {(!meta.conflicts.is_empty()).then(|| view! { <span class="error" data-test="tx-conflict">"Needs a choice"</span> })}
                 </span>
                 <span class="amount" class:income=income>
@@ -322,7 +332,23 @@ pub fn dashboard(c: Ctx) -> impl IntoView {
             {trend_table(&r.trend)}
             {has_shops.then(|| view! { <h2>"Top merchants"</h2><ul class="bars">{shops}</ul> })}
             <h2>"Subscriptions"</h2>
-            <p class="hint">"Regular payments will appear here after bank statements can be imported."</p>
+            {
+                let subs = mm_core::dedup::recurring(&d.txs, |t| d.merchant_name(t.merchant_id).unwrap_or_else(|| t.note.clone()));
+                if subs.is_empty() {
+                    view! { <p class="hint" data-test="no-subscriptions">"Payments that repeat every week, month or year will appear here."</p> }.into_any()
+                } else {
+                    subs.into_iter().map(|r| {
+                        let every = match r.period_days { 6..=8 => "weekly", 360.. => "yearly", _ => "monthly" };
+                        view! {
+                            <li class="txrow" data-test="subscription">
+                                <span class="grow"><span class="name">{r.name.clone()}</span>
+                                    <span class="hint">{format!("{every}, {} payments, last {}", r.count, r.last.display())}</span></span>
+                                <span class="amount"><span>{pln(r.amount_pln)}</span></span>
+                            </li>
+                        }
+                    }).collect_view().into_any()
+                }
+            }
             {has_recent.then(|| view! { <h2>"Recent"</h2><ul class="txs">{recent}</ul> })}
         }
     };
@@ -537,7 +563,10 @@ pub fn edit(c: Ctx, id: Option<Uuid>) -> impl IntoView {
     let receipt = o.is_some_and(|t| t.source == Source::Receipt);
     let confirm = RwSignal::new(o.is_some_and(|t| t.mismatch_confirmed));
     let (source, review) = (o.map(|t| t.source).unwrap_or_default(), o.map(|t| t.review).unwrap_or_default());
+    // Editing must keep a link to a receipt, or the purchase would count twice again.
+    let (duplicate_of, unique_confirmed) = (o.and_then(|t| t.duplicate_of), o.is_some_and(|t| t.unique_confirmed));
     let form_error = RwSignal::new(String::new());
+    let rate_note = RwSignal::new(String::new());
 
     // With items the amount is their sum, so the two can never disagree.
     let items_sum = move || {
@@ -607,6 +636,8 @@ pub fn edit(c: Ctx, id: Option<Uuid>) -> impl IntoView {
                 note: note.get_untracked().trim().to_string(),
                 items: lines,
                 mismatch_confirmed: mismatch,
+                duplicate_of,
+                unique_confirmed,
             };
             t.validate().map_err(|e| e.to_string())?;
             Ok((t, new_merchant, s))
@@ -684,6 +715,7 @@ pub fn edit(c: Ctx, id: Option<Uuid>) -> impl IntoView {
         <div class="segmented">
             <button data-test="kind-expense" class:active=move || kind.get() == TxKind::Expense on:click=move |_| kind.set(TxKind::Expense)>"Expense"</button>
             <button data-test="kind-income" class:active=move || kind.get() == TxKind::Income on:click=move |_| kind.set(TxKind::Income)>"Income"</button>
+            <button data-test="kind-transfer" class:active=move || kind.get() == TxKind::Transfer on:click=move |_| kind.set(TxKind::Transfer)>"Transfer"</button>
         </div>
         {scanned.then(|| view! {
             <p class="hint" data-test="scan-hint">{if doubts.merchant || doubts.date || doubts.total || doubts.nip || doubts.items.contains(&true) {
@@ -721,6 +753,20 @@ pub fn edit(c: Ctx, id: Option<Uuid>) -> impl IntoView {
             <label>"Currency"<input data-test="f-currency" maxlength="3" autocapitalize="characters" prop:value=move || currency.get() on:input=move |e| currency.set(event_target_value(&e)) /></label>
             {move || (currency.get().trim().to_uppercase() != "PLN").then(|| view! {
                 <label>"In PLN"<input data-test="f-pln" inputmode="decimal" prop:value=move || amount_pln.get() on:input=move |e| amount_pln.set(event_target_value(&e)) /></label>
+                <button data-test="f-nbp" on:click=move |_| {
+                    let (cur, day, amt) = (currency.get_untracked().trim().to_uppercase(), Date::parse_iso(&date.get_untracked()), parse_amount(&amount.get_untracked()));
+                    leptos::task::spawn_local(async move {
+                        let (Some(day), Ok(amt)) = (day, amt) else { rate_note.set("Enter the amount and date first".into()); return };
+                        match crate::import::nbp_rate(&cur, day, &mut Default::default()).await {
+                            Ok(Some((when, rate))) => {
+                                amount_pln.set(convert(amt, rate).map(amount_input).unwrap_or_default());
+                                rate_note.set(format!("NBP rate {} from {}", mm_core::money::format_rate(rate), when.display()));
+                            }
+                            Ok(None) => rate_note.set("NBP has no rate for this currency and date".into()),
+                            Err(e) => rate_note.set(e),
+                        }
+                    });
+                }>"NBP rate"</button>
             })}
         </div>
         <div class="row">

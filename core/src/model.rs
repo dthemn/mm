@@ -17,6 +17,8 @@ pub enum TxKind {
     #[default]
     Expense,
     Income,
+    /// Between the user's own accounts: neither income nor expense.
+    Transfer,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -126,6 +128,13 @@ pub struct Transaction {
     /// The user saw that the items do not add up to the amount and kept it anyway.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub mismatch_confirmed: bool,
+    /// Set on a bank operation that a receipt already records. It is kept for the record
+    /// but not counted, and the receipt's items stand in for it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duplicate_of: Option<Uuid>,
+    /// The user said this operation has no duplicate, so it is not suggested again.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub unique_confirmed: bool,
 }
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -230,6 +239,18 @@ pub struct Merchant {
     pub nip: Option<String>,
 }
 
+/// One import of a file. Operations from it keep their own record ids, derived from their contents.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ImportBatch {
+    pub name: String,
+    pub imported: Date,
+    pub account_id: Uuid,
+    pub rows: usize,
+    pub added: usize,
+}
+
+pub const KIND_IMPORT: &str = "import";
+
 /// A personal correction. A rule without a merchant applies to every shop.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CategoryRule {
@@ -296,6 +317,8 @@ mod tests {
             note: String::new(),
             items: vec![],
             mismatch_confirmed: false,
+            duplicate_of: None,
+            unique_confirmed: false,
         }
     }
 

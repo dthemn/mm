@@ -25,6 +25,32 @@ struct Ctx {
     db: PgPool,
 }
 
+/// A stand-in for the NBP API that answers like the real one.
+async fn fake_nbp() -> String {
+    use axum::{Router, extract::Path, routing::get};
+    let app = Router::new().route("/api/exchangerates/rates/a/{code}/{from}/{to}/", get(|Path((code, from, _to)): Path<(String, String, String)>| async move {
+        if code == "xxx" || from.starts_with("2099") {
+            return (axum::http::StatusCode::NOT_FOUND, String::from("404 NotFound")).into_response_parts();
+        }
+        (axum::http::StatusCode::OK, format!(r#"{{"table":"A","currency":"euro","code":"{}","rates":[{{"no":"211/A/NBP/2026","effectiveDate":"2026-10-30","mid":4.3012}},{{"no":"212/A/NBP/2026","effectiveDate":"2026-11-02","mid":4.2987}}]}}"#, code.to_uppercase())).into_response_parts()
+    }));
+    let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", l.local_addr().unwrap());
+    tokio::spawn(async move { axum::serve(l, app).await.unwrap() });
+    url
+}
+
+trait Parts {
+    fn into_response_parts(self) -> axum::response::Response;
+}
+
+impl Parts for (axum::http::StatusCode, String) {
+    fn into_response_parts(self) -> axum::response::Response {
+        use axum::response::IntoResponse;
+        self.into_response()
+    }
+}
+
 async fn start_with(limit: u32) -> Ctx {
     let base = base_url();
     let name = format!("t_{}", Uuid::new_v4().simple());
@@ -41,6 +67,7 @@ async fn start_with(limit: u32) -> Ctx {
         static_dir: None,
         behind_proxy: false,
         auth_per_minute: limit,
+        nbp_url: fake_nbp().await,
     };
     let app = router(db.clone(), &cfg).into_make_service_with_connect_info::<SocketAddr>();
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
@@ -419,6 +446,22 @@ async fn oversized_and_empty_records_are_rejected() {
         let req = PushReq { items: vec![PushItem { id: Uuid::new_v4(), expected_revision: 0, blob: B64(vec![0; len]) }] };
         assert_eq!(http.post(format!("{}/api/sync/push", c.url)).json(&req).send().await.unwrap().status(), 400);
     }
+}
+
+#[tokio::test]
+async fn nbp_rates_come_as_exact_integers_for_a_quarter() {
+    let c = start().await;
+    let a = account(&c).await;
+    let http = login(&c, &a).await;
+    let r: RatesResp = http.get(format!("{}/api/rates/eur/2026/4", c.url)).send().await.unwrap().json().await.unwrap();
+    assert_eq!(r.currency, "EUR");
+    assert_eq!(r.rates, vec![Rate { date: "2026-10-30".into(), rate_e4: 43012 }, Rate { date: "2026-11-02".into(), rate_e4: 42987 }]);
+    let empty: RatesResp = http.get(format!("{}/api/rates/xxx/2026/4", c.url)).send().await.unwrap().json().await.unwrap();
+    assert!(empty.rates.is_empty(), "no rates is not an error");
+    for bad in ["/api/rates/pln/2026/4", "/api/rates/eur/2026/5", "/api/rates/e1/2026/1"] {
+        assert_eq!(http.get(format!("{}{bad}", c.url)).send().await.unwrap().status(), 400, "{bad}");
+    }
+    assert_eq!(client().get(format!("{}/api/rates/eur/2026/4", c.url)).send().await.unwrap().status(), 401, "needs a session");
 }
 
 #[tokio::test]

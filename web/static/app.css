@@ -66,3 +66,4 @@ li.doubt { border-left: 3px solid var(--warn); padding-left: 10px; }
 label.button { position: relative; display: flex; align-items: center; justify-content: center; min-height: 44px; border: 1px solid var(--line); border-radius: 10px; color: var(--fg); }
 label.button.disabled { opacity: .5; }
 label.button .file { position: absolute; inset: 0; opacity: 0; min-height: 0; width: 100%; cursor: pointer; }
+.warn-button { border-color: var(--warn); color: var(--warn); font-weight: 600; }

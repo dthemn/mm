@@ -39,6 +39,8 @@ pub enum Screen {
     Settings,
     Manage(finance::Manage),
     Export,
+    Import,
+    Duplicates,
 }
 
 #[derive(Clone, Copy)]
@@ -257,6 +259,8 @@ pub fn App() -> impl IntoView {
                 Screen::Settings => settings(c).into_any(),
                 Screen::Manage(m) => finance::manage(c, m).into_any(),
                 Screen::Export => finance::export(c).into_any(),
+                Screen::Import => crate::import::import(c).into_any(),
+                Screen::Duplicates => crate::import::duplicates(c).into_any(),
             }}
         </main>
         {move || c.session.with(Option::is_some).then(|| finance::nav(c))}
@@ -465,6 +469,7 @@ fn settings(c: Ctx) -> impl IntoView {
         <button data-test="manage-categories" on:click=move |_| c.screen.set(Screen::Manage(finance::Manage::Categories))>"Categories"</button>
         <button data-test="manage-accounts" on:click=move |_| c.screen.set(Screen::Manage(finance::Manage::Accounts))>"Accounts"</button>
         <button data-test="manage-merchants" on:click=move |_| c.screen.set(Screen::Manage(finance::Manage::Merchants))>"Merchants"</button>
+        <button data-test="go-import" on:click=move |_| c.screen.set(Screen::Import)>"Import a bank statement"</button>
         <button data-test="go-export" on:click=move |_| c.screen.set(Screen::Export)>"Export data"</button>
         <h2>"New passkey"</h2>
         {move || c.need_passkey.get().then(|| view! { <p class="error" data-test="need-passkey">"Add a new passkey to sign in without the 12 words again."</p> })}

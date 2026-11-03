@@ -6,6 +6,7 @@ import { spawn, execFileSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
+import { createServer } from "node:http";
 import puppeteer from "puppeteer-core";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -16,8 +17,13 @@ const CANARY = "CANARY-Żabka-1234,56";
 const dbName = `e2e_${randomBytes(6).toString("hex")}`;
 const dbUrl = `postgres://mm:mm-dev@127.0.0.1:55432/${dbName}`;
 const bin = join(root, "target/debug/mm-server");
+// A stand-in for the NBP API: EUR at 4.3012 on 2026-10-29.
+const nbp = createServer((q, r) => {
+  r.setHeader("Content-Type", "application/json");
+  r.end(JSON.stringify({ table: "A", code: "EUR", rates: [{ no: "1/A/NBP/2026", effectiveDate: "2026-10-29", mid: 4.3012 }] }));
+}).listen(18090);
 const env = { ...process.env, DATABASE_URL: dbUrl, RP_ID: "localhost", ORIGIN, STATIC_DIR: join(root, "web/dist"),
-  LISTEN: `127.0.0.1:${PORT}`, AUTH_PER_MINUTE: "600", RUST_LOG: "warn" };
+  LISTEN: `127.0.0.1:${PORT}`, AUTH_PER_MINUTE: "600", RUST_LOG: "warn", NBP_URL: "http://127.0.0.1:18090" };
 
 const sql = (q, db = "mm") => execFileSync("docker", ["exec", "mm-db-1", "psql", "-U", "mm", "-d", db, "-At", "-c", q]).toString();
 sql(`CREATE DATABASE ${dbName}`);
@@ -766,6 +772,89 @@ await test("the camera opens, and a frame without a receipt is reported", async 
   await fin.click("nav-dashboard");
 });
 
+const gotoMonth = async (d, want) => {
+  for (let i = 0; i < 24; i++) {
+    const m = await d.page.$eval(q("month"), (e) => e.textContent);
+    if (m === want) return;
+    const [mm, yy] = m.split(".").map(Number);
+    const [wm, wy] = want.split(".").map(Number);
+    await d.click(yy * 12 + mm < wy * 12 + wm ? "month-next" : "month-prev");
+  }
+  throw new Error(`could not reach ${want}`);
+};
+const importFile = async (d, file, account) => {
+  await d.click("nav-settings");
+  await d.click("go-import");
+  const input = await d.page.waitForSelector(q("import-file"));
+  await input.uploadFile(join(root, "e2e/fixtures", file));
+  await d.page.waitForSelector(q("import-counts"));
+  if (account) await d.pick("import-account", account);
+  return d.text("import-counts");
+};
+
+await test("a bank CSV imports with a preview, and importing it again adds nothing", async () => {
+  eq(await importFile(fin, "statement.csv"), "6 operations, 6 new, 0 already imported", "preview");
+  await fin.click("import-run");
+  await fin.waitText("import-summary", "Imported 6 new operations");
+  eq(await importFile(fin, "statement.csv"), "6 operations, 0 new, 6 already imported", "second preview");
+  await fin.click("import-run");
+  await fin.waitText("import-summary", "Imported 0 new operations");
+});
+
+await test("a foreign-currency row gets the NBP rate of the previous business day", async () => {
+  await fin.ops();
+  await gotoMonth(fin, "10.2026");
+  await fin.page.waitForFunction((s) => [...document.querySelectorAll(s)].some((e) => e.textContent.replaceAll("\u00a0", " ").includes("43,01 zł")), {}, ".amount");
+});
+
+await test("a receipt and its card payment count once, after the user agrees", async () => {
+  await fin.click("nav-dashboard");
+  await gotoMonth(fin, "11.2026");
+  const before = await money(fin, "dash-expense");
+  await fin.ops();
+  await fin.click("dup-banner");
+  await fin.page.waitForSelector(q("dup-receipt"));
+  await fin.click("dup-same");
+  await fin.page.waitForFunction((s) => !document.querySelector(s), {}, q("dup-receipt"));
+  await fin.click("nav-dashboard");
+  await gotoMonth(fin, "11.2026");
+  const toNum = (s) => Number(s.replace(/[^\d,]/g, "").replace(",", "."));
+  await fin.page.waitForFunction((sel, want) => {
+    const t = document.querySelector(sel).textContent.replace(/[^\d,]/g, "").replace(",", ".");
+    return Math.abs(Number(t) - want) < 0.001;
+  }, {}, q("dash-expense"), toNum(before) - 38.86);
+  await fin.ops();
+  await gotoMonth(fin, "11.2026");
+  await fin.page.waitForSelector(q("tx-linked"));
+});
+
+await test("a transfer between own accounts is neither income nor expense", async () => {
+  eq(await importFile(fin, "savings.csv", "Savings"), "1 operations, 1 new, 0 already imported", "Windows-1250 file with money-in column");
+  await fin.click("import-run");
+  await fin.waitText("import-summary", "Imported 1 new operations");
+  await fin.click("nav-dashboard");
+  await gotoMonth(fin, "10.2026");
+  const before = await money(fin, "dash-income");
+  await fin.ops();
+  await fin.click("dup-banner");
+  await fin.page.waitForSelector(q("dup-transfer"));
+  await fin.click("transfer-yes");
+  await fin.page.waitForSelector(q("no-duplicates"));
+  await fin.click("nav-dashboard");
+  await gotoMonth(fin, "10.2026");
+  const toNum = (s) => Number(s.replace(/[^\d,]/g, "").replace(",", "."));
+  await fin.page.waitForFunction((sel, want) => {
+    const t = document.querySelector(sel).textContent.replace(/[^\d,]/g, "").replace(",", ".");
+    return Math.abs(Number(t) - want) < 0.001;
+  }, {}, q("dash-income"), toNum(before) - 200);
+});
+
+await test("a monthly payment is shown as a subscription", async () => {
+  await fin.click("nav-dashboard");
+  await fin.waitText("subscription", "NETFLIX");
+  ok((await fin.text("subscription")).includes("monthly, 3 payments"), "cadence and count");
+});
+
 await test("the layout fits 320 px with nothing cut off", async () => {
   await fin.page.setViewport({ width: 320, height: 640, deviceScaleFactor: 2 });
   await fin.click("nav-dashboard");
@@ -807,6 +896,7 @@ await test("strict CSP and SRI: no violations, no inline scripts", async () => {
 });
 
 await browser.close();
+nbp.close();
 server.kill();
 sql(`DROP DATABASE ${dbName} WITH (FORCE)`);
 const failed = results.filter((r) => !r[0]).length;

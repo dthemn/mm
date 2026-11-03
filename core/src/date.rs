@@ -50,6 +50,20 @@ impl Date {
     pub fn month_of(self) -> Month {
         Month { year: self.year, month: self.month }
     }
+
+    /// Days since 1970-01-01, for date differences.
+    pub fn days(self) -> i64 {
+        let (y, m, d) = (self.year as i64 - (self.month <= 2) as i64, self.month as i64, self.day as i64);
+        let era = y.div_euclid(400);
+        let yoe = y - era * 400;
+        let doy = (153 * (m + if m > 2 { -3 } else { 9 }) + 2) / 5 + d - 1;
+        let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+        era * 146097 + doe - 719468
+    }
+
+    pub fn days_between(self, other: Date) -> i64 {
+        (other.days() - self.days()).abs()
+    }
 }
 
 impl Serialize for Date {
@@ -118,6 +132,16 @@ mod tests {
         for bad in ["", "2026-1-1", "2026-13-01", "31.10.2026", "2026-10-31-1", "abcd-ef-gh"] {
             assert!(Date::parse_iso(bad).is_none(), "{bad}");
         }
+    }
+
+    #[test]
+    fn day_counts_cross_months_years_and_leap_days() {
+        let d = |y, m, day| Date::new(y, m, day).unwrap();
+        assert_eq!(d(1970, 1, 1).days(), 0);
+        assert_eq!(d(2026, 3, 1).days() - d(2026, 2, 28).days(), 1);
+        assert_eq!(d(2024, 3, 1).days() - d(2024, 2, 28).days(), 2);
+        assert_eq!(d(2026, 1, 2).days_between(d(2025, 12, 31)), 2);
+        assert_eq!(d(2027, 1, 1).days() - d(2026, 1, 1).days(), 365);
     }
 
     #[test]

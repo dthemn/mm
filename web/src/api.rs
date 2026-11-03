@@ -52,6 +52,10 @@ async fn parse<T: DeserializeOwned>(r: Response) -> Result<T, ApiFail> {
     serde_json::from_str(&v.as_string().unwrap_or_default()).map_err(|_| ApiFail::Status(0, "response".into()))
 }
 
+pub async fn get<T: DeserializeOwned>(path: &str) -> Result<T, ApiFail> {
+    parse(call("GET", path, None).await?).await
+}
+
 pub async fn post<B: Serialize, T: DeserializeOwned>(path: &str, body: &B) -> Result<T, ApiFail> {
     let s = serde_json::to_string(body).map_err(|_| ApiFail::Network)?;
     parse(call("POST", path, Some(s)).await?).await

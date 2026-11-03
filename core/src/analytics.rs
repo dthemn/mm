@@ -61,6 +61,11 @@ pub fn parts(t: &Transaction, cats: &HashMap<Uuid, Category>) -> Vec<Part> {
         .collect()
 }
 
+/// Whether an operation counts in totals. Transfers and duplicates of receipts do not.
+pub fn counts(t: &Transaction) -> bool {
+    t.kind != TxKind::Transfer && t.duplicate_of.is_none()
+}
+
 fn in_scope(t: &Transaction, f: &Filter) -> bool {
     f.from.is_none_or(|d| t.date >= d) && f.to.is_none_or(|d| t.date <= d) && f.account.is_none_or(|a| t.account_id == a)
 }
@@ -108,7 +113,7 @@ pub fn dashboard(txs: &[Tx], cats: &HashMap<Uuid, Category>, f: &Filter, month: 
     let months: Vec<Month> = (0..TREND_MONTHS).rev().map(|i| month.offset(-i)).collect();
     d.trend = months.iter().map(|m| MonthTotal { month: Some(*m), ..Default::default() }).collect();
 
-    for (_, t) in txs {
+    for (_, t) in txs.iter().filter(|t| counts(&t.1)) {
         let open_sum: i64 = if in_scope(t, &open) {
             filtered_parts(t, &open, cats).iter().map(|p| p.amount_pln).sum()
         } else {
@@ -118,6 +123,7 @@ pub fn dashboard(txs: &[Tx], cats: &HashMap<Uuid, Category>, f: &Filter, month: 
             match t.kind {
                 TxKind::Income => d.trend[pos].income += open_sum,
                 TxKind::Expense => d.trend[pos].expense += open_sum,
+                TxKind::Transfer => {}
             }
         }
         if !in_scope(t, f) {
@@ -125,6 +131,7 @@ pub fn dashboard(txs: &[Tx], cats: &HashMap<Uuid, Category>, f: &Filter, month: 
         }
         for p in filtered_parts(t, f, cats) {
             match t.kind {
+                TxKind::Transfer => {}
                 TxKind::Income => d.income += p.amount_pln,
                 TxKind::Expense => {
                     d.expense += p.amount_pln;
@@ -140,7 +147,7 @@ pub fn dashboard(txs: &[Tx], cats: &HashMap<Uuid, Category>, f: &Filter, month: 
     d.top_merchants = by_merchant.into_iter().filter(|(m, _)| m.is_some()).collect();
     d.top_merchants.sort_by_key(|m| (std::cmp::Reverse(m.1), m.0));
     d.top_merchants.truncate(TOP_MERCHANTS);
-    d.recent = filter_txs(txs, f, cats).iter().take(RECENT).map(|t| t.0).collect();
+    d.recent = filter_txs(txs, f, cats).iter().filter(|t| t.1.duplicate_of.is_none()).take(RECENT).map(|t| t.0).collect();
     d
 }
 
@@ -157,7 +164,7 @@ pub fn category_lines(txs: &[Tx], cats: &HashMap<Uuid, Category>, f: &Filter, ca
     let f = Filter { category: Some(category), ..f.clone() };
     let mut out = vec![];
     for (id, t) in filter_txs(txs, &f, cats) {
-        if t.kind != TxKind::Expense {
+        if t.kind != TxKind::Expense || !counts(t) {
             continue;
         }
         for p in filtered_parts(t, &f, cats) {
@@ -185,7 +192,7 @@ mod tests {
         (Uuid::new_v4(), Transaction {
             kind, date, time: None, merchant_id: None, nip: None, amount, currency: "PLN".into(), amount_pln: amount,
             payment: Payment::Card, account_id: ACCOUNT_MAIN, category_id: cat, source: Source::Manual,
-            review: Review::Reviewed, note: String::new(), items: vec![], mismatch_confirmed: false,
+            review: Review::Reviewed, note: String::new(), items: vec![], mismatch_confirmed: false, duplicate_of: None, unique_confirmed: false,
         })
     }
 
@@ -323,6 +330,19 @@ mod tests {
         let t = vec![with(Some(m), 100), with(Some(n), 300), with(Some(m), 150), with(None, 9999)];
         let r = dashboard(&t, &none(), &of(month(2026, 10)), month(2026, 10));
         assert_eq!(r.top_merchants, vec![(Some(n), 300), (Some(m), 250)]);
+    }
+
+    #[test]
+    fn transfers_and_receipt_duplicates_are_not_counted() {
+        let mut transfer = tx(TxKind::Transfer, d(10, 2), 50000, A);
+        transfer.1.kind = TxKind::Transfer;
+        let receipt = tx(TxKind::Expense, d(10, 3), 1234, A);
+        let mut bank = tx(TxKind::Expense, d(10, 4), 1234, A);
+        bank.1.duplicate_of = Some(receipt.0);
+        let r = dashboard(&[transfer, receipt, bank], &none(), &of(month(2026, 10)), month(2026, 10));
+        assert_eq!((r.income, r.expense), (0, 1234));
+        assert_eq!(r.trend[5].expense, 1234);
+        assert_eq!(r.recent.len(), 2, "the duplicate is hidden from recent operations");
     }
 
     #[test]

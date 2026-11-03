@@ -41,13 +41,18 @@ Principles, highest priority first:
 
 ## Status (2026-11-03)
 
+Stage 5 so far: `core::import` (CSV, Windows-1250, column guessing, stable keyed record ids so a re-import adds
+nothing), `core::dedup` (receipt and bank operation, own-account transfers, recurring payments), and a server proxy
+for NBP rates at `/api/rates/{code}/{year}/{quarter}` with a cache. Bank profiles wait for real statements, which the
+owner has not added yet. Next: PDF text import, password-protected PDFs, invoices, then bank profiles.
+
 | Stage | State |
 |---|---|
 | 1. OCR comparison, architecture, threat model | done |
 | 2. Workspace, passkey login, encryption, sync | done |
 | 3. Manual operations, dashboard, export | done |
 | 4. Receipt from photo to saved operation | works in desktop Chrome; not tried on a phone |
-| 5. Bank statement and invoice import, deduplication | not started |
+| 5. Bank statement and invoice import, deduplication | CSV import, dedup, transfers, NBP rates, subscriptions done; bank profiles, PDF and invoices not started |
 | 6. Subscriptions, PWA polish, backups, deployment | deploy files written, not run on a VPS |
 
 Nothing has ever run on a real iPhone or Android phone. PRF, camera, install to home screen and OCR speed on a
@@ -69,10 +74,10 @@ mid-range Android are all unverified. `docs/DEPLOY.md` is the path to that; it n
 
 ```sh
 docker compose -f compose.dev.yml up -d        # throwaway test DB on 127.0.0.1:55432
-cargo test -p mm-core                          # 128 tests
-cargo test -p mm-server                        # 20 tests, needs the test DB
+cargo test -p mm-core                          # 148 tests
+cargo test -p mm-server                        # 21 tests, needs the test DB
 web/build.sh && cargo build -p mm-server
-node e2e/run.mjs > /tmp/e2e.log 2>&1           # 36 tests; write to a file, never pipe into head or tail
+node e2e/run.mjs > /tmp/e2e.log 2>&1           # 41 tests; write to a file, never pipe into head or tail
 LIMIT=90000 node e2e/scan.mjs                  # real receipts in samples/receipts, prints scores only
 SHOW=1 ...                                     # also prints recognized lines (sets localStorage.mmDebug)
 docker compose up --build -d                   # whole app on http://localhost:8080 (use localhost, not 127.0.0.1)
@@ -105,8 +110,7 @@ Gotchas learned the hard way:
   and they were used for tuning. Needs 30 to 50 receipts with a held-out third.
 - No CI yet with `cargo audit` and `cargo deny`.
 - No backups. Restoring an old database lowers `seq` below device cursors, so a restore epoch is needed first.
-- Foreign currency needs the PLN amount by hand until the NBP rate lookup in stage 5.
-- No internal transfer type, no subscriptions, no statement or invoice import, no deduplication yet.
+- No bank-specific statement profiles, no PDF import, no invoices yet.
 - A second open tab blocks erasing local data until it closes.
 - Lines of the original spec were cut off when pasted: the end of the category list, the `Transaction` fields
   between payment method and source, and minimum iOS and Android versions. The current choices are guesses.
