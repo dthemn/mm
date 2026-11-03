@@ -521,10 +521,11 @@ await test("bad input stays on the form and changes nothing", async () => {
   await fin.click("f-save");
   ok((await fin.text("form-error")).includes("amount"), "amount error");
   await fin.setValue("f-amount", "10");
+  // A NIP is optional: a typo only warns, and the printed format with dashes is accepted.
   await fin.setValue("f-nip", "1234563217");
-  await fin.click("f-save");
-  ok((await fin.text("form-error")).includes("NIP"), "NIP error");
-  await fin.setValue("f-nip", "1234563218");
+  await fin.page.waitForSelector(q("nip-warning"));
+  await fin.setValue("f-nip", "123-456-32-18");
+  await fin.page.waitForFunction((s) => !document.querySelector(s), {}, q("nip-warning"));
   await fin.setValue("f-currency", "EUR");
   await fin.click("f-save");
   ok((await fin.text("form-error")).includes("PLN"), "a foreign amount needs PLN");
@@ -535,6 +536,25 @@ await test("bad input stays on the form and changes nothing", async () => {
   ok((await fin.page.$$eval(q("tx-amount"), (a) => a.map((e) => e.textContent))).some((t) => t.includes("EUR")), "original currency shown");
   await fin.click("nav-dashboard");
   await fin.waitText("dash-expense", "87,47 zł");
+});
+
+await test("NIP is optional and never blocks saving", async () => {
+  for (const [merchant, nip] of [["NoNip", ""], ["TypoNip", "1234563217"], ["PrefixNip", "PL 123 456 32 18"]]) {
+    await fin.click("nav-add");
+    await fin.type("f-amount", "1");
+    await fin.type("f-merchant", merchant);
+    if (nip) await fin.type("f-nip", nip);
+    await fin.click("f-save");
+    await fin.waitText("tx-title", merchant);
+  }
+  await fin.openNote("PrefixNip");
+  eq(await fin.page.$eval(q("f-nip"), (e) => e.value), "1234563218", "stored as digits");
+  await fin.click("f-delete");
+  for (const m of ["NoNip", "TypoNip"]) {
+    await fin.openNote(m);
+    await fin.click("f-delete");
+    await fin.page.waitForSelector(q("add-tx"));
+  }
 });
 
 await test("account filter and period change the numbers", async () => {

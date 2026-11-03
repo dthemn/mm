@@ -577,7 +577,7 @@ pub fn edit(c: Ctx, id: Option<Uuid>) -> impl IntoView {
                 parse_amount(&amount_pln.get_untracked()).map_err(|_| "Enter the amount in PLN".to_string())?
             };
             let name = merchant.get_untracked().trim().to_string();
-            let nip_s = nip.get_untracked().trim().to_string();
+            let nip_s = normalize_nip(&nip.get_untracked());
             let mut new_merchant = None;
             let merchant_id = (!name.is_empty()).then(|| {
                 let id = merchant_id(&s.dek, &name);
@@ -727,7 +727,13 @@ pub fn edit(c: Ctx, id: Option<Uuid>) -> impl IntoView {
                 {move || c.data.with(Data::merchant_list).into_iter().map(|(_, m)| view! { <option value=m.name></option> }).collect_view()}
             </datalist>
         </label>
-        <label class:doubt=doubts.nip>"NIP"<input data-test="f-nip" inputmode="numeric" prop:value=move || nip.get() on:input=move |e| nip.set(event_target_value(&e)) /></label>
+        <label class:doubt=doubts.nip>"NIP (optional)"<input data-test="f-nip" inputmode="numeric" autocomplete="off" prop:value=move || nip.get() on:input=move |e| nip.set(event_target_value(&e)) /></label>
+        {move || {
+            let n = normalize_nip(&nip.get());
+            (!n.is_empty() && !valid_nip(&n)).then(|| view! {
+                <p class="warn" data-test="nip-warning">"This NIP looks wrong. You can still save."</p>
+            })
+        }}
         <label>"Category"{category_select(c, category, "f-category")}</label>
         <div class="row">
             <label>"Account"
@@ -901,10 +907,7 @@ fn merchants(c: Ctx) -> impl IntoView {
             let name = RwSignal::new(m.name.clone());
             let nip = RwSignal::new(m.nip.clone().unwrap_or_default());
             let save = move |_| busy_task(c, async move {
-                let n = nip.get_untracked().trim().to_string();
-                if !n.is_empty() && !valid_nip(&n) {
-                    return Err("NIP must have 10 digits and a valid check digit".to_string());
-                }
+                let n = normalize_nip(&nip.get_untracked());
                 let s = session(c)?;
                 let m = Merchant { name: name.get_untracked().trim().to_string(), nip: Some(n).filter(|x| !x.is_empty()) };
                 data::write(&s, id, KIND_MERCHANT, &m).await?;
@@ -924,7 +927,7 @@ fn merchants(c: Ctx) -> impl IntoView {
             view! {
                 <li class="item" data-test="merchant-item">
                     <input data-test="merchant-name" prop:value=move || name.get() on:input=move |e| name.set(event_target_value(&e)) />
-                    <label>"NIP"<input data-test="merchant-nip" inputmode="numeric" prop:value=move || nip.get() on:input=move |e| nip.set(event_target_value(&e)) /></label>
+                    <label>"NIP (optional)"<input data-test="merchant-nip" inputmode="numeric" prop:value=move || nip.get() on:input=move |e| nip.set(event_target_value(&e)) /></label>
                     <div class="row">
                         <button data-test="merchant-save" on:click=save>"Save"</button>
                         <button data-test="merchant-delete" on:click=delete>"Delete"</button>
