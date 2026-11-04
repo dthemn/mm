@@ -47,6 +47,22 @@ impl Date {
         format!("{:02}.{:02}.{:04}", self.day, self.month, self.year)
     }
 
+    /// 0 is Monday. 1970-01-01, day 0, was a Thursday.
+    pub fn weekday(self) -> u32 {
+        (self.days() + 3).rem_euclid(7) as u32
+    }
+
+    /// "Wed, 4 November" for a day list. The year is added when it is not `this_year`.
+    pub fn day_label(self, this_year: i32) -> String {
+        let wd = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][self.weekday() as usize];
+        let month = self.month_of().name();
+        if self.year == this_year {
+            format!("{wd}, {} {month}", self.day)
+        } else {
+            format!("{wd}, {} {month} {}", self.day, self.year)
+        }
+    }
+
     pub fn month_of(self) -> Month {
         Month { year: self.year, month: self.month }
     }
@@ -104,6 +120,16 @@ impl Month {
         format!("{:02}.{:04}", self.month, self.year)
     }
 
+    /// "November 2026"
+    pub fn long(self) -> String {
+        format!("{} {}", self.name(), self.year)
+    }
+
+    pub fn name(self) -> &'static str {
+        ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November",
+            "December"][self.month as usize - 1]
+    }
+
     pub fn short_name(self) -> &'static str {
         ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][self.month as usize - 1]
     }
@@ -112,6 +138,16 @@ impl Month {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn weekdays_and_day_labels() {
+        let d = |y, m, n| Date::new(y, m, n).unwrap();
+        assert_eq!(d(1970, 1, 1).weekday(), 3);
+        assert_eq!(d(2026, 11, 4).day_label(2026), "Wed, 4 November");
+        assert_eq!(d(2024, 2, 29).day_label(2026), "Thu, 29 February 2024");
+        assert_eq!(d(1969, 12, 29).weekday(), 0);
+        assert_eq!(d(2026, 11, 4).month_of().long(), "November 2026");
+    }
 
     #[test]
     fn validates_calendar_dates() {

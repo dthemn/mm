@@ -55,15 +55,17 @@ owner has not added yet. Next: PDF text import, password-protected PDFs, invoice
 | 5. Bank statement and invoice import, deduplication | CSV import, dedup, transfers, NBP rates, subscriptions done; bank profiles, PDF and invoices not started |
 | 6. Subscriptions, PWA polish, backups, deployment | deploy files written, not run on a VPS |
 
-Nothing has ever run on a real iPhone or Android phone. PRF, camera, install to home screen and OCR speed on a
-mid-range Android are all unverified. `docs/DEPLOY.md` is the path to that; it needs a VPS and a domain from the owner.
+On 2026-11-04 the owner registered with a passkey and synced on an iPhone 13 at https://mm.dthem.com: the app runs
+in Docker on the owner's Mac (compose.yml, tunnel profile, `.env` holds the tunnel token). The camera, PRF, install
+to home screen and OCR speed on a mid-range Android are still unverified. No VPS yet.
 
 ## Layout
 
 - `core/` money, dates, models, analytics, export, crypto, sync, `vision` (photo prep), `ocr` (model I/O),
   `receipt` (Polish fiscal receipt parser), `categorize`. Tested natively, no browser.
 - `server/` Axum, sqlx, PostgreSQL. Stores ciphertext only. `mm-server invite` creates an invite.
-- `web/` Leptos CSR. `app.rs` auth shell, `finance.rs` screens, `scan.rs` camera and OCR, `data.rs` decrypted cache.
+- `web/` Leptos CSR. `app.rs` auth shell, `finance.rs` screens (Home lists operations by day, Stats holds the charts,
+  `Screen::Tx` shows one operation with its receipt lines), `scan.rs` camera and OCR, `data.rs` decrypted cache.
   `web/build.sh` builds `web/dist` with SRI; `web/ocr-assets.sh` downloads the recognizer and checks pinned hashes.
 - `e2e/` Chrome tests with a virtual passkey: `run.mjs` (main suite), `scan.mjs` (scores real receipts),
   `smoke.mjs` (checks a running deployment), `fixtures/receipt.jpg` (synthetic, made up).
@@ -74,10 +76,10 @@ mid-range Android are all unverified. `docs/DEPLOY.md` is the path to that; it n
 
 ```sh
 docker compose -f compose.dev.yml up -d        # throwaway test DB on 127.0.0.1:55432
-cargo test -p mm-core                          # 148 tests
+cargo test -p mm-core                          # 149 tests
 cargo test -p mm-server                        # 21 tests, needs the test DB
 web/build.sh && cargo build -p mm-server
-node e2e/run.mjs > /tmp/e2e.log 2>&1           # 44 tests; write to a file, never pipe into head or tail
+node e2e/run.mjs > /tmp/e2e.log 2>&1           # 45 tests; write to a file, never pipe into head or tail
 LIMIT=90000 node e2e/scan.mjs                  # real receipts in samples/receipts, prints scores only
 SHOW=1 ...                                     # also prints recognized lines (sets localStorage.mmDebug)
 docker compose up --build -d                   # whole app on http://localhost:8080 (use localhost, not 127.0.0.1)

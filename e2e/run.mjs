@@ -113,8 +113,8 @@ class Device {
   }
 
   async ops() {
-    await this.click("nav-ops");
-    await this.page.waitForSelector(q("add-tx"));
+    await this.click("nav-dashboard");
+    await this.page.waitForSelector(q("dash-balance"));
   }
 
   async waitNote(s) {
@@ -135,6 +135,9 @@ class Device {
     await this.page.evaluate((sel, t) => {
       [...document.querySelectorAll(sel)].find((b) => b.textContent.includes(t)).click();
     }, q("tx-row"), s);
+    // An operation that needs a choice opens the form at once, others show their details first.
+    await this.page.waitForSelector(`${q("tx-edit")}, ${q("f-save")}`);
+    if (await this.page.$(q("tx-edit"))) await this.click("tx-edit");
     await this.page.waitForSelector(q("f-save"));
   }
 
@@ -380,7 +383,7 @@ await test("conflict: both versions shown, the choice reaches both devices", asy
     await d.openNote("while the server is down");
     await d.setValue("f-note", text);
     await d.click("f-save");
-    await d.page.waitForSelector(q("add-tx"));
+    await d.page.waitForSelector(q("dash-balance"));
   };
   await tablet.offline(true);
   await edit(phone, "phone version");
@@ -394,7 +397,7 @@ await test("conflict: both versions shown, the choice reaches both devices", asy
   const buttons = await tablet.page.$$eval(`${q("conflict")} button`, (a) => a.map((b) => b.textContent));
   ok(buttons.includes("phone version") && buttons.includes("tablet version"), `both versions: ${buttons}`);
   await tablet.click("keep-theirs");
-  await tablet.page.waitForSelector(q("add-tx"));
+  await tablet.page.waitForSelector(q("dash-balance"));
   await tablet.page.waitForFunction((s) => !document.querySelector(s), { timeout: 10000 }, q("tx-conflict"));
   await tablet.waitText("status", "Synced");
   await phone.page.reload({ waitUntil: "load" });
@@ -485,7 +488,7 @@ await test("dashboard totals are exact, income and expenses are separate", async
   await fin.type("f-amount", "5 000,00");
   await fin.type("f-note", "Salary");
   await fin.click("f-save");
-  await fin.page.waitForSelector(q("add-tx"));
+  await fin.page.waitForSelector(q("dash-balance"));
   await fin.click("nav-dashboard");
   await fin.waitText("dash-expense", "21,16 zł");
   eq(await money(fin, "dash-income"), "5 000,00 zł", "income");
@@ -521,6 +524,7 @@ await test("categories count per item, and a category opens its items", async ()
   await fin.waitText("tx-title", "Rossmann");
   await fin.click("nav-dashboard");
   await fin.waitText("dash-expense", "44,35 zł");
+  await fin.click("nav-stats");
   const rows = await fin.page.$$eval(q("cat-row"), (a) => a.map((e) => e.textContent.replaceAll("\u00a0", " ")));
   ok(rows.some((r) => r.includes("Household") && r.includes("20,00 zł")), `Household: ${rows}`);
   ok(rows.some((r) => r.includes("Food") && r.includes("3,19 zł")), `Food: ${rows}`);
@@ -529,6 +533,34 @@ await test("categories count per item, and a category opens its items", async ()
   }, q("cat-row"));
   await fin.waitText("line-row", "Chleb");
   eq((await fin.page.$$(q("line-row"))).length, 1, "only the matching item");
+});
+
+await test("home lists operations by day, newest first, and a tap shows the receipt lines", async () => {
+  await fin.click("nav-dashboard");
+  await fin.page.waitForSelector(q("day"));
+  const days = await fin.page.$$eval(q("day"), (a) => a.map((d) => ({
+    label: d.querySelector('[data-test="day-label"]').textContent,
+    rows: d.querySelectorAll('[data-test="tx-row"]').length,
+  })));
+  ok(days.length >= 1 && days.every((d) => d.rows >= 1), `days: ${JSON.stringify(days)}`);
+  ok(/^(Mon|Tue|Wed|Thu|Fri|Sat|Sun), \d+ [A-Z][a-z]+/.test(days[0].label), `day label: ${days[0].label}`);
+  const amounts = await fin.page.$$eval(q("tx-amount"), (a) => a.map((e) => e.textContent));
+  ok(amounts.every((t) => /^[+−⇄]/.test(t)), `every amount has a sign: ${amounts}`);
+  await fin.page.evaluate((sel) => {
+    [...document.querySelectorAll(sel)].find((b) => b.textContent.includes("Rossmann")).click();
+  }, q("tx-row"));
+  await fin.waitText("detail-title", "Rossmann");
+  const lines = await fin.page.$$eval(q("detail-item"), (a) => a.map((e) => e.textContent.replaceAll("\u00a0", " ")));
+  eq(lines.length, 2, "both receipt lines");
+  ok(lines[0].includes("Chleb") && lines[0].includes("0,532 × 5,99 zł") && lines[0].includes("3,19 zł"), `bread: ${lines[0]}`);
+  ok(lines[1].includes("Szampon") && lines[1].includes("Discount −4,00 zł") && lines[1].includes("20,00 zł"), `shampoo: ${lines[1]}`);
+  ok((await fin.text("detail-amount")).startsWith("−"), "an expense is shown with a minus");
+  await fin.click("tx-edit");
+  await fin.page.waitForSelector(q("f-save"));
+  await fin.click("form-back");
+  await fin.waitText("detail-title", "Rossmann");
+  await fin.click("detail-back");
+  await fin.page.waitForSelector(q("day"));
 });
 
 await test("bad input stays on the form and changes nothing", async () => {
@@ -569,7 +601,7 @@ await test("NIP is optional and never blocks saving", async () => {
   for (const m of ["NoNip", "TypoNip"]) {
     await fin.openNote(m);
     await fin.click("f-delete");
-    await fin.page.waitForSelector(q("add-tx"));
+    await fin.page.waitForSelector(q("dash-balance"));
   }
 });
 
@@ -583,7 +615,7 @@ await test("account filter and period change the numbers", async () => {
   await fin.type("f-amount", "100");
   await fin.pick("f-account", "Savings");
   await fin.click("f-save");
-  await fin.page.waitForSelector(q("add-tx"));
+  await fin.page.waitForSelector(q("dash-balance"));
   await fin.click("nav-dashboard");
   await fin.waitText("dash-expense", "187,47 zł");
   await fin.page.$eval("details.filters", (e) => { e.open = true; });
@@ -616,7 +648,7 @@ await test("merging a category moves its amounts", async () => {
   await fin.pick("merge-target", "Household", at);
   await (await fin.page.$$(q("merge")))[at].evaluate((e) => e.click());
   await fin.page.waitForFunction((s) => ![...document.querySelectorAll(s)].some((e) => e.value === "Food"), {}, q("category-name"));
-  await fin.click("nav-dashboard");
+  await fin.click("nav-stats");
   await fin.page.waitForFunction((s) => [...document.querySelectorAll(s)].some((e) => e.textContent.includes("Household") && e.textContent.includes("23,19")), {}, q("cat-row"));
   const rows = await fin.page.$$eval(q("cat-row"), (a) => a.map((e) => e.textContent));
   ok(!rows.some((r) => r.includes("Food")), `merged away: ${rows}`);
@@ -634,7 +666,7 @@ await test("renaming a merchant updates its operations and top list", async () =
   await (await fin.page.$$(q("merchant-save")))[at].evaluate((e) => e.click());
   await fin.waitText("merchant-name", "Lidl Polska");
   await fin.waitNote("Lidl Polska");
-  await fin.click("nav-dashboard");
+  await fin.click("nav-stats");
   await fin.page.waitForSelector(q("top-merchant"));
   await fin.click("nav-settings");
   await fin.click("manage-merchants");
@@ -645,7 +677,7 @@ await test("renaming a merchant updates its operations and top list", async () =
 });
 
 await test("the trend chart shows six months and a table of exact values", async () => {
-  await fin.click("nav-dashboard");
+  await fin.click("nav-stats");
   await fin.page.waitForSelector(q("trend"));
   eq(await fin.page.$$eval(`${q("trend")} g`, (a) => a.length), 6, "months");
   eq(await fin.page.$$eval(`${q("trend-table")} tbody tr`, (a) => a.length), 6, "table rows");
@@ -712,7 +744,8 @@ await test("a receipt photo becomes a checked operation with a category per item
   ok(!(await fin.page.$(q("scan-video"))), "the camera is closed once the photo is read");
   await fin.click("f-save");
   await fin.waitText("tx-title", "Sklep Testowy");
-  eq(await fin.page.$eval(q("month"), (e) => e.textContent), "10.2026", "the list shows the receipt's month");
+  eq(await fin.page.$eval(q("month"), (e) => e.dataset.month), "10.2026", "the list shows the receipt's month");
+  ok((await fin.text("month")).includes("October 2026"), "the month is written out");
 });
 
 await test("a corrected category is remembered for the next receipt", async () => {
@@ -720,7 +753,7 @@ await test("a corrected category is remembered for the next receipt", async () =
   const at = await fin.page.$$eval(q("item-name"), (a) => a.findIndex((e) => e.value.startsWith("Szampon")));
   await fin.pick("item-category", "Health", at);
   await fin.click("f-save");
-  await fin.page.waitForSelector(q("add-tx"));
+  await fin.page.waitForSelector(q("dash-balance"));
   await scanFixture(fin);
   eq(await itemCategory(fin, "Szampon"), "Health", "the correction is applied");
   eq(await itemCategory(fin, "Mleko"), "Household", "other items keep their category");
@@ -740,7 +773,7 @@ await test("a receipt that does not add up cannot be saved silently", async () =
   ok(await fin.page.$(q("f-save")), "still on the form");
   await fin.click("confirm-mismatch");
   await fin.click("f-save");
-  await fin.page.waitForSelector(q("add-tx"));
+  await fin.page.waitForSelector(q("dash-balance"));
 });
 
 await test("the photo never leaves the device", async () => {
@@ -776,7 +809,7 @@ await test("the camera opens, and a frame without a receipt is reported", async 
 
 const gotoMonth = async (d, want) => {
   for (let i = 0; i < 24; i++) {
-    const m = await d.page.$eval(q("month"), (e) => e.textContent);
+    const m = await d.page.$eval(q("month"), (e) => e.dataset.month);
     if (m === want) return;
     const [mm, yy] = m.split(".").map(Number);
     const [wm, wy] = want.split(".").map(Number);
@@ -852,24 +885,27 @@ await test("a transfer between own accounts is neither income nor expense", asyn
 });
 
 await test("a monthly payment is shown as a subscription", async () => {
-  await fin.click("nav-dashboard");
+  await fin.click("nav-stats");
   await fin.waitText("subscription", "NETFLIX");
   ok((await fin.text("subscription")).includes("monthly, 3 payments"), "cadence and count");
 });
 
 await test("the layout fits 320 px with nothing cut off", async () => {
   await fin.page.setViewport({ width: 320, height: 640, deviceScaleFactor: 2 });
-  await fin.click("nav-dashboard");
+  await fin.click("nav-stats");
   await fin.page.waitForSelector(q("trend"));
-  for (const screen of ["nav-dashboard", "nav-ops", "nav-add", "nav-settings"]) {
+  for (const screen of ["nav-dashboard", "nav-stats", "nav-add", "nav-settings"]) {
     await fin.click(screen);
     await sleep(100);
     const over = await fin.page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     eq(over, 0, `horizontal overflow on ${screen}`);
   }
   await fin.click("nav-dashboard");
+  await fin.page.waitForSelector(q("day"));
+  await fin.page.screenshot({ path: process.env.SHOT ?? "/tmp/mm-home.png", fullPage: true });
+  await fin.click("nav-stats");
   await fin.page.waitForSelector(q("trend"));
-  await fin.page.screenshot({ path: process.env.SHOT ?? "/tmp/mm-dashboard.png", fullPage: true });
+  await fin.page.screenshot({ path: process.env.SHOT_STATS ?? "/tmp/mm-stats.png", fullPage: true });
   await fin.page.setViewport({ width: 390, height: 844, deviceScaleFactor: 2 });
 });
 

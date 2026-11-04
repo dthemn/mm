@@ -320,7 +320,7 @@ pub fn duplicates(c: Ctx) -> impl IntoView {
         }).collect_view().into_any()
     };
     view! {
-        <header class="row"><h1>"Possible duplicates"</h1><button on:click=move |_| c.screen.set(Screen::Operations)>"Back"</button></header>
+        <header class="row"><h1>"Possible duplicates"</h1><button on:click=move |_| c.screen.set(Screen::Dashboard)>"Back"</button></header>
         <p class="hint">"A receipt and its card payment count once. Transfers between your own accounts count as neither income nor expense."</p>
         <ul class="items">{list}</ul>
     }

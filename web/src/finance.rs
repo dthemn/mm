@@ -5,7 +5,7 @@ use crate::data::{self, Data};
 use crate::flows::Session;
 use js_sys::{Array, Uint8Array};
 use leptos::prelude::*;
-use mm_core::analytics::{self, CategoryLine, Dashboard, Filter, MonthTotal, TREND_MONTHS};
+use mm_core::analytics::{self, CategoryLine, Dashboard, Filter, MonthTotal, TREND_MONTHS, Tx};
 use mm_core::categorize::fold;
 use mm_core::crypto::{merchant_id, named_id};
 use mm_core::date::{Date, Month};
@@ -103,8 +103,8 @@ pub fn nav(c: Ctx) -> impl IntoView {
     };
     view! {
         <nav class="tabs">
-            <button data-test="nav-dashboard" class:active=on(Screen::Dashboard) on:click=move |_| go(Screen::Dashboard)>"Dashboard"</button>
-            <button data-test="nav-ops" class:active=on(Screen::Operations) on:click=move |_| go(Screen::Operations)>"Operations"</button>
+            <button data-test="nav-dashboard" class:active=on(Screen::Dashboard) on:click=move |_| go(Screen::Dashboard)>"Home"</button>
+            <button data-test="nav-stats" class:active=on(Screen::Stats) on:click=move |_| go(Screen::Stats)>"Stats"</button>
             <button class="photo" data-test="nav-photo" aria-label="Scan a receipt" on:click=move |_| go(Screen::Scan)>
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>
             </button>
@@ -116,7 +116,8 @@ pub fn nav(c: Ctx) -> impl IntoView {
 
 fn banners(c: Ctx) -> impl IntoView {
     view! {
-        <p class="hint" data-test="status">{move || c.status.get()}</p>
+        // "Synced" is the normal state and needs no space on the screen.
+        <p class="hint" data-test="status" hidden=move || c.status.with(|s| s.is_empty() || s == "Synced")>{move || c.status.get()}</p>
         {move || c.issues.get().into_iter().map(|i| view! { <p class="error" data-test="issue">{i}</p> }).collect_view()}
         {move || {
             let n = c.data.with(crate::import::pending);
@@ -142,7 +143,7 @@ fn filters(c: Ctx) -> impl IntoView {
     };
     let label = move || {
         if f.from.with(String::is_empty) || f.to.with(String::is_empty) {
-            f.month.get().display()
+            f.month.get().long()
         } else {
             "Custom period".to_string()
         }
@@ -150,7 +151,7 @@ fn filters(c: Ctx) -> impl IntoView {
     view! {
         <div class="month">
             <button aria-label="Previous month" data-test="month-prev" on:click=move |_| shift(-1)>"‹"</button>
-            <strong data-test="month">{label}</strong>
+            <strong data-test="month" data-month=move || f.month.get().display()>{label}</strong>
             <button aria-label="Next month" data-test="month-next" on:click=move |_| shift(1)>"›"</button>
         </div>
         <details class="filters">
@@ -250,28 +251,46 @@ fn trend_table(rows: &[MonthTotal]) -> impl IntoView + use<> {
     }
 }
 
+fn signed(t: &Transaction) -> String {
+    let sign = match t.kind { TxKind::Income => "+", TxKind::Expense => "−", TxKind::Transfer => "⇄ " };
+    format!("{sign}{}", format_money(t.amount, &t.currency))
+}
+
+fn tx_title(d: &Data, t: &Transaction) -> String {
+    d.merchant_name(t.merchant_id).unwrap_or_else(|| {
+        if t.note.is_empty() { d.category_name(t.category_id) } else { t.note.clone() }
+    })
+}
+
+/// Opens the details, or the form at once when the operation needs a choice between two versions.
+fn open_tx(d: &Data, id: Uuid) -> Screen {
+    if d.meta.get(&id).is_some_and(|m| !m.conflicts.is_empty()) { Screen::Edit(Some(id)) } else { Screen::Tx(id) }
+}
+
 fn tx_row(c: Ctx, d: &Data, id: Uuid, t: &Transaction) -> impl IntoView + use<> {
     let meta = d.meta.get(&id).cloned().unwrap_or_default();
-    let title = d.merchant_name(t.merchant_id).unwrap_or_else(|| {
-        if t.note.is_empty() { d.category_name(t.category_id) } else { t.note.clone() }
-    });
+    let title = tx_title(d, t);
     let income = t.kind == TxKind::Income;
-    let sign = match t.kind { TxKind::Income => "+", TxKind::Expense => "−", TxKind::Transfer => "⇄ " };
-    let amount = format!("{sign}{}", format_money(t.amount, &t.currency));
     let second = (t.currency != "PLN").then(|| pln(t.amount_pln));
+    let detail = match t.items.len() {
+        0 => d.category_name(t.category_id),
+        1 => format!("{} · 1 item", d.category_name(t.category_id)),
+        n => format!("{} · {n} items", d.category_name(t.category_id)),
+    };
+    let target = open_tx(d, id);
     view! {
         <li>
-            <button class="txrow" data-test="tx-row" on:click=move |_| c.screen.set(Screen::Edit(Some(id)))>
+            <button class="txrow" data-test="tx-row" on:click=move |_| c.screen.set(target.clone())>
                 <span class="grow">
                     <span class="name" data-test="tx-title">{title}</span>
-                    <span class="hint">{t.date.display()}" · "{d.category_name(t.category_id)}</span>
+                    <span class="hint">{detail}</span>
                     {meta.pending.then(|| view! { <span class="hint" data-test="pending">"Waiting to send"</span> })}
                     {t.duplicate_of.is_some().then(|| view! { <span class="hint" data-test="tx-linked">"Recorded by a receipt, not counted"</span> })}
                     {(t.kind == TxKind::Transfer).then(|| view! { <span class="hint">"Transfer, not counted"</span> })}
                     {(!meta.conflicts.is_empty()).then(|| view! { <span class="error" data-test="tx-conflict">"Needs a choice"</span> })}
                 </span>
                 <span class="amount" class:income=income>
-                    <span data-test="tx-amount">{amount}</span>
+                    <span data-test="tx-amount">{signed(t)}</span>
                     {second.map(|s| view! { <span class="hint">{s}</span> })}
                 </span>
             </button>
@@ -279,18 +298,88 @@ fn tx_row(c: Ctx, d: &Data, id: Uuid, t: &Transaction) -> impl IntoView + use<> 
     }
 }
 
+/// What a day adds to the balance: income minus expenses, without transfers and linked duplicates.
+fn day_net(rows: &[&Tx]) -> i64 {
+    rows.iter().map(|(_, t)| match t.kind {
+        _ if t.duplicate_of.is_some() => 0,
+        TxKind::Income => t.amount_pln,
+        TxKind::Expense => -t.amount_pln,
+        TxKind::Transfer => 0,
+    }).sum()
+}
+
+fn net(minor: i64) -> String {
+    match minor {
+        0 => pln(0),
+        m if m > 0 => format!("+{}", pln(m)),
+        m => format!("−{}", pln(-m)),
+    }
+}
+
+/// Home: the month's totals, then every operation grouped by day, newest first.
 pub fn dashboard(c: Ctx) -> impl IntoView {
-    let report = move || {
+    let body = move || {
         let f = c.filter.build();
         let month = c.filter.month.get();
-        c.data.with(|d| analytics::dashboard(&d.txs, &d.categories, &f, month))
-    };
-    let body = move || {
-        let r: Dashboard = report();
         let d = c.data.get();
+        let r: Dashboard = analytics::dashboard(&d.txs, &d.categories, &f, month);
+        let rows = analytics::filter_txs(&d.txs, &f, &d.categories);
+        let year = today().year;
+        let mut days: Vec<(Date, Vec<&Tx>)> = Vec::new();
+        for tx in rows {
+            match days.last_mut() {
+                Some((day, list)) if *day == tx.1.date => list.push(tx),
+                _ => days.push((tx.1.date, vec![tx])),
+            }
+        }
+        let list = if d.txs.is_empty() {
+            view! {
+                <p class="hint" data-test="empty">"No operations yet. Scan a receipt or add one by hand."</p>
+                <button class="primary" data-test="add-first" on:click=move |_| c.screen.set(Screen::Edit(None))>"Add the first one"</button>
+            }.into_any()
+        } else if days.is_empty() {
+            view! { <p class="hint" data-test="empty-list">"Nothing for this period."</p> }.into_any()
+        } else {
+            days.iter().map(|(day, list)| {
+                let total = day_net(list);
+                let gain = total > 0;
+                let rows: Vec<_> = list.iter().map(|(id, t)| tx_row(c, &d, *id, t)).collect();
+                view! {
+                    <section class="day" data-test="day">
+                        <div class="dayhead">
+                            <span data-test="day-label">{day.day_label(year)}</span>
+                            <span class="num" class:income=gain>{net(total)}</span>
+                        </div>
+                        <ul class="txs">{rows}</ul>
+                    </section>
+                }
+            }).collect_view().into_any()
+        };
+        view! {
+            <section class="summary" aria-label="Month totals">
+                <div><span class="hint">"Spent"</span><strong data-test="dash-expense">{pln(r.expense)}</strong></div>
+                <div><span class="hint">"Income"</span><strong class="income" data-test="dash-income">{pln(r.income)}</strong></div>
+                <p class="balance"><span class="hint">"Balance"</span><strong data-test="dash-balance">{pln(r.balance)}</strong></p>
+            </section>
+            {list}
+        }
+    };
+    view! {
+        {filters(c)}
+        {banners(c)}
+        {body}
+    }
+}
+
+/// Where the money went: categories, six months, top merchants and subscriptions.
+pub fn stats(c: Ctx) -> impl IntoView {
+    let body = move || {
+        let f = c.filter.build();
+        let month = c.filter.month.get();
+        let d = c.data.get();
+        let r: Dashboard = analytics::dashboard(&d.txs, &d.categories, &f, month);
         let max_cat = r.by_category.first().map(|x| x.1).unwrap_or(0);
         let max_shop = r.top_merchants.first().map(|x| x.1).unwrap_or(0);
-        let empty = d.txs.is_empty();
         let cats: Vec<_> = r.by_category.iter().map(|(id, v)| {
             let id = *id;
             view! {
@@ -308,77 +397,107 @@ pub fn dashboard(c: Ctx) -> impl IntoView {
                 {bar(*v, max_shop)}
             </li>
         }).collect();
-        let recent: Vec<_> = r.recent.iter().filter_map(|id| d.txs.iter().find(|t| t.0 == *id)).map(|(id, t)| tx_row(c, &d, *id, t)).collect();
         let has_cats = !r.by_category.is_empty();
         let has_shops = !r.top_merchants.is_empty();
-        let has_recent = !r.recent.is_empty();
+        let subs = mm_core::dedup::recurring(&d.txs, |t| d.merchant_name(t.merchant_id).unwrap_or_else(|| t.note.clone()));
+        let subs = if subs.is_empty() {
+            view! { <p class="hint" data-test="no-subscriptions">"Payments that repeat every week, month or year will appear here."</p> }.into_any()
+        } else {
+            let rows = subs.into_iter().map(|r| {
+                let every = match r.period_days { 6..=8 => "weekly", 360.. => "yearly", _ => "monthly" };
+                view! {
+                    <li class="txrow" data-test="subscription">
+                        <span class="grow"><span class="name">{r.name.clone()}</span>
+                            <span class="hint">{format!("{every}, {} payments, last {}", r.count, r.last.display())}</span></span>
+                        <span class="amount"><span>{pln(r.amount_pln)}</span></span>
+                    </li>
+                }
+            }).collect_view();
+            view! { <ul class="txs">{rows}</ul> }.into_any()
+        };
         view! {
-            <section class="hero">
-                <span class="hint">"Balance"</span>
-                <p class="big" data-test="dash-balance">{pln(r.balance)}</p>
-                <div class="row split">
-                    <span><span class="hint">"Income"</span><strong data-test="dash-income">{pln(r.income)}</strong></span>
-                    <span><span class="hint">"Expenses"</span><strong data-test="dash-expense">{pln(r.expense)}</strong></span>
-                </div>
-            </section>
-            {empty.then(|| view! {
-                <p class="hint" data-test="empty">"No operations yet."</p>
-                <button class="primary" data-test="add-first" on:click=move |_| c.screen.set(Screen::Edit(None))>"Add the first one"</button>
-            })}
-            {has_cats.then(|| view! { <h2>"By category"</h2><ul class="bars">{cats}</ul> })}
+            <h2>"By category"</h2>
+            {if has_cats {
+                view! { <ul class="bars">{cats}</ul> }.into_any()
+            } else {
+                view! { <p class="hint">"No expenses in this period."</p> }.into_any()
+            }}
             <h2>"Last six months"</h2>
             <div class="legend" aria-hidden="true"><span class="key income"></span>"Income"<span class="key expense"></span>"Expenses"</div>
             {trend_chart(&r.trend)}
             {trend_table(&r.trend)}
             {has_shops.then(|| view! { <h2>"Top merchants"</h2><ul class="bars">{shops}</ul> })}
             <h2>"Subscriptions"</h2>
-            {
-                let subs = mm_core::dedup::recurring(&d.txs, |t| d.merchant_name(t.merchant_id).unwrap_or_else(|| t.note.clone()));
-                if subs.is_empty() {
-                    view! { <p class="hint" data-test="no-subscriptions">"Payments that repeat every week, month or year will appear here."</p> }.into_any()
-                } else {
-                    subs.into_iter().map(|r| {
-                        let every = match r.period_days { 6..=8 => "weekly", 360.. => "yearly", _ => "monthly" };
-                        view! {
-                            <li class="txrow" data-test="subscription">
-                                <span class="grow"><span class="name">{r.name.clone()}</span>
-                                    <span class="hint">{format!("{every}, {} payments, last {}", r.count, r.last.display())}</span></span>
-                                <span class="amount"><span>{pln(r.amount_pln)}</span></span>
-                            </li>
-                        }
-                    }).collect_view().into_any()
-                }
-            }
-            {has_recent.then(|| view! { <h2>"Recent"</h2><ul class="txs">{recent}</ul> })}
+            {subs}
         }
     };
     view! {
-        <header class="row"><h1>"Dashboard"</h1></header>
-        {banners(c)}
         {filters(c)}
+        {banners(c)}
         {body}
     }
 }
 
-pub fn operations(c: Ctx) -> impl IntoView {
-    let list = move || {
-        let f = c.filter.build();
+/// One operation as recorded, with every receipt line. Editing is one tap away.
+pub fn tx_detail(c: Ctx, id: Uuid) -> impl IntoView {
+    let back = move |_| c.screen.set(Screen::Dashboard);
+    let body = move || {
         let d = c.data.get();
-        let rows = analytics::filter_txs(&d.txs, &f, &d.categories);
-        if rows.is_empty() {
-            return view! { <p class="hint" data-test="empty-list">"Nothing for this period."</p> }.into_any();
-        }
-        let items: Vec<_> = rows.iter().map(|(id, t)| tx_row(c, &d, *id, t)).collect();
-        view! { <ul class="txs">{items}</ul> }.into_any()
+        let Some((_, t)) = d.txs.iter().find(|t| t.0 == id) else {
+            return view! { <p class="hint" data-test="tx-gone">"This operation was deleted."</p> }.into_any();
+        };
+        let meta = d.meta.get(&id).cloned().unwrap_or_default();
+        let when = match &t.time {
+            Some(h) if !h.is_empty() => format!("{} · {h}", t.date.day_label(today().year)),
+            _ => t.date.day_label(today().year),
+        };
+        let account = d.accounts.get(&t.account_id).map(|a| a.name.clone()).unwrap_or_default();
+        let facts = [
+            ("Category", d.category_name(t.category_id)),
+            ("Account", account),
+            ("Paid by", t.payment.label().to_string()),
+            ("NIP", t.nip.clone().unwrap_or_default()),
+            ("Note", t.note.clone()),
+        ];
+        let facts = facts.into_iter().filter(|(_, v)| !v.is_empty()).map(|(k, v)| view! {
+            <div><dt>{k}</dt><dd>{v}</dd></div>
+        }).collect_view();
+        let lines = t.items.iter().map(|i| {
+            let unit = if i.unit.is_empty() || i.unit == "szt" || i.unit == "pcs" { String::new() } else { format!(" {}", i.unit) };
+            let how = format!("{}{unit} × {} · {}", i.qty.display(), format_money(i.unit_price, &t.currency), d.category_name(i.category_id));
+            view! {
+                <li data-test="detail-item">
+                    <span class="grow">
+                        <span class="name">{i.name.clone()}</span>
+                        <span class="hint">{how}</span>
+                        {(i.discount != 0).then(|| view! { <span class="hint">{format!("Discount −{}", format_money(i.discount, &t.currency))}</span> })}
+                    </span>
+                    <span class="num">{format_money(i.total, &t.currency)}</span>
+                </li>
+            }
+        }).collect_view();
+        let n = t.items.len();
+        let income = t.kind == TxKind::Income;
+        view! {
+            <p class="hint">{when}</p>
+            <h1 class="title" data-test="detail-title">{tx_title(&d, t)}</h1>
+            <p class="big" class:income=income data-test="detail-amount">{signed(t)}</p>
+            {(t.currency != "PLN").then(|| view! { <p class="hint">{format!("{} at the NBP rate", pln(t.amount_pln))}</p> })}
+            {meta.pending.then(|| view! { <p class="hint">"Waiting to send"</p> })}
+            {t.duplicate_of.is_some().then(|| view! { <p class="hint">"Recorded by a receipt, not counted twice"</p> })}
+            {(t.kind == TxKind::Transfer).then(|| view! { <p class="hint">"Transfer between own accounts, not counted"</p> })}
+            <dl class="facts">{facts}</dl>
+            {(n > 0).then(|| view! {
+                <h2>{if n == 1 { "1 item".to_string() } else { format!("{n} items") }}</h2>
+                <ul class="lines" data-test="detail-items">{lines}</ul>
+                <div class="line total"><strong>"Total"</strong><strong class="num">{format_money(t.amount, &t.currency)}</strong></div>
+            })}
+            <button class="primary" data-test="tx-edit" on:click=move |_| c.screen.set(Screen::Edit(Some(id)))>"Edit"</button>
+        }.into_any()
     };
     view! {
-        <header class="row">
-            <h1>"Operations"</h1>
-            <button class="primary" data-test="add-tx" on:click=move |_| c.screen.set(Screen::Edit(None))>"Add"</button>
-        </header>
-        {banners(c)}
-        {filters(c)}
-        {list}
+        <header class="row"><button class="back" data-test="detail-back" on:click=back>"‹ Back"</button></header>
+        {body}
     }
 }
 
@@ -393,7 +512,7 @@ pub fn category(c: Ctx, id: Uuid) -> impl IntoView {
             let name = l.name.clone().or_else(|| d.txs.iter().find(|t| t.0 == tx).and_then(|t| d.merchant_name(t.1.merchant_id))).unwrap_or_else(|| "Operation".into());
             view! {
                 <li>
-                    <button class="txrow" data-test="line-row" on:click=move |_| c.screen.set(Screen::Edit(Some(tx)))>
+                    <button class="txrow" data-test="line-row" on:click=move |_| c.screen.set(Screen::Tx(tx))>
                         <span class="grow"><span class="name">{name}</span><span class="hint">{l.date.display()}</span></span>
                         <span class="amount"><span>{pln(l.amount_pln)}</span></span>
                     </button>
@@ -404,7 +523,7 @@ pub fn category(c: Ctx, id: Uuid) -> impl IntoView {
     view! {
         <header class="row">
             <h1 data-test="category-title">{title}</h1>
-            <button on:click=move |_| c.screen.set(Screen::Dashboard)>"Back"</button>
+            <button on:click=move |_| c.screen.set(Screen::Stats)>"Back"</button>
         </header>
         <ul class="txs">{list}</ul>
     }
@@ -516,7 +635,7 @@ fn conflict_box(c: Ctx, id: Uuid, f: FieldConflict) -> impl IntoView {
         let s = session(c)?;
         data::resolve(&s, id, &field, keep_theirs).await?;
         // The form still shows the values from before the choice, so saving it would undo it.
-        c.screen.set(Screen::Operations);
+        c.screen.set(Screen::Dashboard);
         after_write(c, &s).await;
         Ok(())
     });
@@ -664,7 +783,7 @@ pub fn edit(c: Ctx, id: Option<Uuid>) -> impl IntoView {
                     c.filter.from.set(String::new());
                     c.filter.to.set(String::new());
                     c.filter.month.set(t.date.month_of());
-                    c.screen.set(Screen::Operations);
+                    c.screen.set(Screen::Dashboard);
                     after_write(c, &s).await;
                     Ok(())
                 });
@@ -677,7 +796,7 @@ pub fn edit(c: Ctx, id: Option<Uuid>) -> impl IntoView {
         if let Some(i) = id {
             data::remove(&s, i, KIND_TRANSACTION, json!({})).await?;
         }
-        c.screen.set(Screen::Operations);
+        c.screen.set(Screen::Dashboard);
         after_write(c, &s).await;
         Ok(())
     });
@@ -709,7 +828,7 @@ pub fn edit(c: Ctx, id: Option<Uuid>) -> impl IntoView {
     view! {
         <header class="row">
             <h1>{if scanned { "Check the receipt" } else if id.is_some() { "Edit operation" } else { "New operation" }}</h1>
-            <button data-test="form-back" on:click=move |_| c.screen.set(Screen::Operations)>"Back"</button>
+            <button data-test="form-back" on:click=move |_| c.screen.set(id.map_or(Screen::Dashboard, Screen::Tx))>"Back"</button>
         </header>
         {boxes}
         <div class="segmented">

@@ -67,3 +67,24 @@ label.button { position: relative; display: flex; align-items: center; justify-c
 label.button.disabled { opacity: .5; }
 label.button .file { position: absolute; inset: 0; opacity: 0; min-height: 0; width: 100%; cursor: pointer; }
 .warn-button { border-color: var(--warn); color: var(--warn); font-weight: 600; }
+
+/* Home: compact totals and a list grouped by day */
+.month strong { font-size: 19px; } .month button { min-height: 40px; height: 40px; width: 40px; font-size: 20px; border-radius: 50%; }
+.summary { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.summary .balance { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: baseline; padding: 0 4px; }
+.summary > div { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; min-width: 0; }
+.summary div strong { font-size: 20px; } .summary strong { font-size: 16px; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.income { color: var(--accent); }
+.day { display: flex; flex-direction: column; }
+.dayhead { display: flex; justify-content: space-between; gap: 12px; padding: 14px 0 4px; font-size: 14px; font-weight: 600; color: var(--muted); border-bottom: 1px solid var(--line); }
+.day .txrow { min-height: 56px; padding: 8px 0; }
+.day .txs li:last-child .txrow { border-bottom: 0; }
+/* One operation */
+button.back { width: auto; border: 0; padding: 8px 0; color: var(--accent); }
+h1.title { margin: 0; overflow-wrap: anywhere; }
+.facts { margin: 4px 0 0; display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; font-size: 15px; }
+.facts > div { display: contents; } .facts dt { color: var(--muted); } .facts dd { margin: 0; overflow-wrap: anywhere; }
+.lines { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.lines li { display: flex; gap: 12px; align-items: flex-start; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.lines .name { font-weight: 500; overflow-wrap: anywhere; }
+.line.total { padding: 8px 0 12px; }

@@ -28,7 +28,7 @@ const type = async (t, s) => {
   await page.type(q(t), s);
 };
 const hasNote = async () => {
-  await click("nav-ops");
+  await click("nav-dashboard");
   await page.waitForFunction(
     (s, n) => [...document.querySelectorAll(s)].some((e) => e.textContent === n), { timeout: 15000 }, q("tx-title"), NOTE,
   );

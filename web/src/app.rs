@@ -32,8 +32,11 @@ pub enum Screen {
     Locked,
     /// Entering the 12 words. `true`: a device without PRF, the key stays on the device.
     Phrase(bool),
+    /// Home: month totals and every operation by day.
     Dashboard,
-    Operations,
+    Stats,
+    /// One operation with its receipt lines.
+    Tx(Uuid),
     /// None creates a new operation.
     Edit(Option<Uuid>),
     Category(Uuid),
@@ -262,7 +265,8 @@ pub fn App() -> impl IntoView {
                 Screen::Locked => locked(c).into_any(),
                 Screen::Phrase(remember) => phrase_entry(c, remember).into_any(),
                 Screen::Dashboard => finance::dashboard(c).into_any(),
-                Screen::Operations => finance::operations(c).into_any(),
+                Screen::Stats => finance::stats(c).into_any(),
+                Screen::Tx(id) => finance::tx_detail(c, id).into_any(),
                 Screen::Edit(id) => finance::edit(c, id).into_any(),
                 Screen::Category(id) => finance::category(c, id).into_any(),
                 Screen::Scan => crate::scan::scan(c).into_any(),
