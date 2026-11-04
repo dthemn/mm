@@ -7,6 +7,7 @@ mod data;
 mod device;
 mod finance;
 mod flows;
+mod icons;
 mod import;
 mod scan;
 mod store;

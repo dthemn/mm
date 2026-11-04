@@ -23,6 +23,7 @@ pub struct Data {
     pub accounts: HashMap<Uuid, Account>,
     pub merchants: HashMap<Uuid, Merchant>,
     pub rules: HashMap<Uuid, CategoryRule>,
+    pub prefs: Prefs,
 }
 
 fn sorted<T: Clone>(m: &HashMap<Uuid, T>, name: impl Fn(&T) -> String) -> Vec<(Uuid, T)> {
@@ -143,6 +144,16 @@ fn apply(d: &mut Data, id: Uuid, e: &Envelope) -> bool {
                 Ok(r) => {
                     d.rules.insert(id, r);
                 }
+                Err(_) => return false,
+            }
+        }
+        KIND_PREFS => {
+            if e.deleted {
+                d.prefs = Prefs::default();
+                return true;
+            }
+            match serde_json::from_value(v) {
+                Ok(p) => d.prefs = p,
                 Err(_) => return false,
             }
         }

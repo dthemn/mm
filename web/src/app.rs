@@ -103,6 +103,7 @@ pub async fn reload(c: Ctx, s: &Session) {
     match data::load(s).await {
         Ok((d, bad)) => {
             if c.session.with_untracked(|cur| cur.as_ref().is_some_and(|x| x.user == s.user)) {
+                crate::finance::apply_theme(d.prefs.theme);
                 c.data.set(d);
                 if !bad.is_empty() {
                     c.issues.update(|i| i.extend(bad.iter().map(|id| format!("Record {id} cannot be decrypted"))));
@@ -504,6 +505,7 @@ fn settings(c: Ctx) -> impl IntoView {
         </header>
         <p data-test="prf-status">{move || if prf() { "Passkey encryption: on" } else { "Passkey encryption: off, the key is stored on this device" }}</p>
         <button data-test="lock" on:click=move |_| lock(c)>"Lock"</button>
+        {finance::appearance(c)}
         <h2>"Data"</h2>
         <button data-test="manage-categories" on:click=move |_| c.screen.set(Screen::Manage(finance::Manage::Categories))>"Categories"</button>
         <button data-test="manage-accounts" on:click=move |_| c.screen.set(Screen::Manage(finance::Manage::Accounts))>"Accounts"</button>

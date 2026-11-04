@@ -890,6 +890,30 @@ await test("a monthly payment is shown as a subscription", async () => {
   ok((await fin.text("subscription")).includes("monthly, 3 payments"), "cadence and count");
 });
 
+await test("the theme is dark by default, and light is saved in the account", async () => {
+  const theme = () => fin.page.evaluate(() => document.documentElement.dataset.theme);
+  eq(await theme(), "dark", "dark by default");
+  const before = +sql("SELECT count(*) FROM records", dbName);
+  await fin.click("nav-settings");
+  await fin.click("theme-light");
+  await fin.page.waitForFunction(() => document.documentElement.dataset.theme === "light");
+  for (let i = 0; i < 100 && +sql("SELECT count(*) FROM records", dbName) === before; i++) await sleep(100);
+  eq(+sql("SELECT count(*) FROM records", dbName), before + 1, "one new encrypted record on the server");
+  // Without the copy on this device, the theme must come back from the account.
+  await fin.page.evaluate(() => localStorage.removeItem("mmTheme"));
+  await fin.page.reload({ waitUntil: "load" });
+  await fin.page.waitForSelector(q("login"));
+  eq(await theme(), "dark", "the sign-in screen starts dark without the local copy");
+  await fin.login();
+  await fin.page.waitForSelector(q("dash-balance"));
+  await fin.page.waitForFunction(() => document.documentElement.dataset.theme === "light", { timeout: 15000 });
+  await fin.page.screenshot({ path: process.env.SHOT_LIGHT ?? "/tmp/mm-light.png" });
+  await fin.click("nav-settings");
+  await fin.click("theme-dark");
+  await fin.page.waitForFunction(() => document.documentElement.dataset.theme === "dark");
+  await fin.click("nav-dashboard");
+});
+
 await test("the layout fits 320 px with nothing cut off", async () => {
   await fin.page.setViewport({ width: 320, height: 640, deviceScaleFactor: 2 });
   await fin.click("nav-stats");
@@ -899,10 +923,22 @@ await test("the layout fits 320 px with nothing cut off", async () => {
     await sleep(100);
     const over = await fin.page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     eq(over, 0, `horizontal overflow on ${screen}`);
+    // Only the content scrolls: the tab bar stays at the bottom edge of the screen.
+    const bar = await fin.page.evaluate(() => {
+      const r = document.querySelector(".tabs").getBoundingClientRect();
+      return { bottom: Math.round(r.bottom), height: window.innerHeight, page: document.documentElement.scrollHeight };
+    });
+    eq(bar.bottom, bar.height, `tab bar at the bottom on ${screen}`);
+    ok(bar.page <= bar.height, `the page itself does not scroll on ${screen}`);
   }
   await fin.click("nav-dashboard");
   await fin.page.waitForSelector(q("day"));
-  await fin.page.screenshot({ path: process.env.SHOT ?? "/tmp/mm-home.png", fullPage: true });
+  await fin.page.screenshot({ path: process.env.SHOT ?? "/tmp/mm-home.png" });
+  await fin.page.evaluate((sel) => {
+    [...document.querySelectorAll(sel)].find((b) => b.textContent.includes("Rossmann")).click();
+  }, q("tx-row"));
+  await fin.page.waitForSelector(q("detail-items"));
+  await fin.page.screenshot({ path: process.env.SHOT_DETAIL ?? "/tmp/mm-detail.png" });
   await fin.click("nav-stats");
   await fin.page.waitForSelector(q("trend"));
   await fin.page.screenshot({ path: process.env.SHOT_STATS ?? "/tmp/mm-stats.png", fullPage: true });

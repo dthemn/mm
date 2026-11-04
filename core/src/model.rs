@@ -250,6 +250,31 @@ pub struct ImportBatch {
 }
 
 pub const KIND_IMPORT: &str = "import";
+pub const KIND_PREFS: &str = "prefs";
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Theme {
+    #[default]
+    Dark,
+    Light,
+}
+
+impl Theme {
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::Dark => "dark",
+            Self::Light => "light",
+        }
+    }
+}
+
+/// The user's interface settings. One record per account, encrypted like the rest, so every device follows it.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Prefs {
+    #[serde(default)]
+    pub theme: Theme,
+}
 
 /// A personal correction. A rule without a merchant applies to every shop.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -267,6 +292,7 @@ const fn builtin(n: u128) -> Uuid {
 
 pub const CAT_FOOD: Uuid = builtin(0);
 pub const CAT_HOUSEHOLD: Uuid = builtin(1);
+pub const CAT_SUBSCRIPTIONS: Uuid = builtin(2);
 pub const CAT_TRANSPORT: Uuid = builtin(3);
 pub const CAT_HEALTH: Uuid = builtin(4);
 pub const CAT_CLOTHING: Uuid = builtin(5);

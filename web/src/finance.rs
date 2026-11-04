@@ -3,6 +3,7 @@
 use crate::app::{Ctx, Screen, busy_task, reload, run_sync, today};
 use crate::data::{self, Data};
 use crate::flows::Session;
+use crate::icons::{Icon, icon};
 use js_sys::{Array, Uint8Array};
 use leptos::prelude::*;
 use mm_core::analytics::{self, CategoryLine, Dashboard, Filter, MonthTotal, TREND_MONTHS, Tx};
@@ -103,13 +104,19 @@ pub fn nav(c: Ctx) -> impl IntoView {
     };
     view! {
         <nav class="tabs">
-            <button data-test="nav-dashboard" class:active=on(Screen::Dashboard) on:click=move |_| go(Screen::Dashboard)>"Home"</button>
-            <button data-test="nav-stats" class:active=on(Screen::Stats) on:click=move |_| go(Screen::Stats)>"Stats"</button>
-            <button class="photo" data-test="nav-photo" aria-label="Scan a receipt" on:click=move |_| go(Screen::Scan)>
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>
+            <button data-test="nav-dashboard" aria-label="Home" class:active=on(Screen::Dashboard) on:click=move |_| go(Screen::Dashboard)>
+                {icon(Icon::Home)}<span>"Home"</span>
             </button>
-            <button data-test="nav-add" on:click=move |_| go(Screen::Edit(None))>"Add"</button>
-            <button data-test="nav-settings" class:active=on(Screen::Settings) on:click=move |_| go(Screen::Settings)>"Settings"</button>
+            <button data-test="nav-stats" aria-label="Stats" class:active=on(Screen::Stats) on:click=move |_| go(Screen::Stats)>
+                {icon(Icon::Stats)}<span>"Stats"</span>
+            </button>
+            <button class="photo" data-test="nav-photo" aria-label="Scan a receipt" on:click=move |_| go(Screen::Scan)>{icon(Icon::Camera)}</button>
+            <button data-test="nav-add" aria-label="Add" on:click=move |_| go(Screen::Edit(None))>
+                {icon(Icon::Plus)}<span>"Add"</span>
+            </button>
+            <button data-test="nav-settings" aria-label="Settings" class:active=on(Screen::Settings) on:click=move |_| go(Screen::Settings)>
+                {icon(Icon::Settings)}<span>"Settings"</span>
+            </button>
         </nav>
     }
 }
@@ -267,29 +274,36 @@ fn open_tx(d: &Data, id: Uuid) -> Screen {
     if d.meta.get(&id).is_some_and(|m| !m.conflicts.is_empty()) { Screen::Edit(Some(id)) } else { Screen::Tx(id) }
 }
 
-fn tx_row(c: Ctx, d: &Data, id: Uuid, t: &Transaction) -> impl IntoView + use<> {
+/// `amount`: a day with one operation already shows its sum in the day header.
+fn tx_row(c: Ctx, d: &Data, id: Uuid, t: &Transaction, amount: bool) -> impl IntoView + use<> {
     let meta = d.meta.get(&id).cloned().unwrap_or_default();
     let title = tx_title(d, t);
     let income = t.kind == TxKind::Income;
     let second = (t.currency != "PLN").then(|| pln(t.amount_pln));
-    let detail = match t.items.len() {
-        0 => d.category_name(t.category_id),
-        1 => format!("{} · 1 item", d.category_name(t.category_id)),
-        n => format!("{} · {n} items", d.category_name(t.category_id)),
+    let cat = analytics::canonical(&d.categories, t.category_id);
+    let items = match t.items.len() {
+        0 => String::new(),
+        1 => " · 1 item".to_string(),
+        n => format!(" · {n} items"),
     };
+    let picture = crate::icons::for_tx(t, cat);
+    // Without a merchant or note the title already is the category name.
+    let named = d.merchant_name(t.merchant_id).is_some() || !t.note.is_empty();
+    let tail = if named { format!(" · {}{items}", d.category_name(cat)) } else { items };
     let target = open_tx(d, id);
     view! {
         <li>
             <button class="txrow" data-test="tx-row" on:click=move |_| c.screen.set(target.clone())>
+                {icon(picture)}
                 <span class="grow">
-                    <span class="name" data-test="tx-title">{title}</span>
-                    <span class="hint">{detail}</span>
+                    <span class="what"><span class="name" data-test="tx-title">{title}</span>
+                        <span class="dot">{tail}</span></span>
                     {meta.pending.then(|| view! { <span class="hint" data-test="pending">"Waiting to send"</span> })}
                     {t.duplicate_of.is_some().then(|| view! { <span class="hint" data-test="tx-linked">"Recorded by a receipt, not counted"</span> })}
                     {(t.kind == TxKind::Transfer).then(|| view! { <span class="hint">"Transfer, not counted"</span> })}
                     {(!meta.conflicts.is_empty()).then(|| view! { <span class="error" data-test="tx-conflict">"Needs a choice"</span> })}
                 </span>
-                <span class="amount" class:income=income>
+                <span class="amount" class:income=income hidden=!amount>
                     <span data-test="tx-amount">{signed(t)}</span>
                     {second.map(|s| view! { <span class="hint">{s}</span> })}
                 </span>
@@ -343,12 +357,13 @@ pub fn dashboard(c: Ctx) -> impl IntoView {
             days.iter().map(|(day, list)| {
                 let total = day_net(list);
                 let gain = total > 0;
-                let rows: Vec<_> = list.iter().map(|(id, t)| tx_row(c, &d, *id, t)).collect();
+                let many = list.len() > 1;
+                let rows: Vec<_> = list.iter().map(|(id, t)| tx_row(c, &d, *id, t, many)).collect();
                 view! {
                     <section class="day" data-test="day">
                         <div class="dayhead">
                             <span data-test="day-label">{day.day_label(year)}</span>
-                            <span class="num" class:income=gain>{net(total)}</span>
+                            <span class="num" class:income=gain data-test="day-total">{net(total)}</span>
                         </div>
                         <ul class="txs">{rows}</ul>
                     </section>
@@ -357,9 +372,9 @@ pub fn dashboard(c: Ctx) -> impl IntoView {
         };
         view! {
             <section class="summary" aria-label="Month totals">
-                <div><span class="hint">"Spent"</span><strong data-test="dash-expense">{pln(r.expense)}</strong></div>
-                <div><span class="hint">"Income"</span><strong class="income" data-test="dash-income">{pln(r.income)}</strong></div>
-                <p class="balance"><span class="hint">"Balance"</span><strong data-test="dash-balance">{pln(r.balance)}</strong></p>
+                <div class="slip"><span class="label">"Spent"{icon(Icon::Wallet)}</span><strong data-test="dash-expense">{pln(r.expense)}</strong></div>
+                <div class="slip"><span class="label">"Income"{icon(Icon::Download)}</span><strong class="income" data-test="dash-income">{pln(r.income)}</strong></div>
+                <p class="balance"><span>"Balance"</span><strong data-test="dash-balance">{if r.balance < 0 { net(r.balance) } else { pln(r.balance) }}</strong></p>
             </section>
             {list}
         }
@@ -438,33 +453,29 @@ pub fn stats(c: Ctx) -> impl IntoView {
     }
 }
 
-/// One operation as recorded, with every receipt line. Editing is one tap away.
+/// One operation as recorded, laid out like the receipt, with every line. Editing is one tap away.
 pub fn tx_detail(c: Ctx, id: Uuid) -> impl IntoView {
-    let back = move |_| c.screen.set(Screen::Dashboard);
     let body = move || {
         let d = c.data.get();
         let Some((_, t)) = d.txs.iter().find(|t| t.0 == id) else {
             return view! { <p class="hint" data-test="tx-gone">"This operation was deleted."</p> }.into_any();
         };
         let meta = d.meta.get(&id).cloned().unwrap_or_default();
-        let when = match &t.time {
-            Some(h) if !h.is_empty() => format!("{} · {h}", t.date.day_label(today().year)),
-            _ => t.date.day_label(today().year),
-        };
         let account = d.accounts.get(&t.account_id).map(|a| a.name.clone()).unwrap_or_default();
         let facts = [
-            ("Category", d.category_name(t.category_id)),
-            ("Account", account),
-            ("Paid by", t.payment.label().to_string()),
-            ("NIP", t.nip.clone().unwrap_or_default()),
-            ("Note", t.note.clone()),
+            ("Category:", d.category_name(analytics::canonical(&d.categories, t.category_id))),
+            ("Account:", account),
+            ("Paid by:", t.payment.label().to_string()),
+            ("NIP:", t.nip.clone().unwrap_or_default()),
+            ("Note:", t.note.clone()),
         ];
         let facts = facts.into_iter().filter(|(_, v)| !v.is_empty()).map(|(k, v)| view! {
             <div><dt>{k}</dt><dd>{v}</dd></div>
         }).collect_view();
         let lines = t.items.iter().map(|i| {
             let unit = if i.unit.is_empty() || i.unit == "szt" || i.unit == "pcs" { String::new() } else { format!(" {}", i.unit) };
-            let how = format!("{}{unit} × {} · {}", i.qty.display(), format_money(i.unit_price, &t.currency), d.category_name(i.category_id));
+            let how = format!("{}{unit} × {} · {}", i.qty.display(), format_money(i.unit_price, &t.currency),
+                d.category_name(analytics::canonical(&d.categories, i.category_id)));
             view! {
                 <li data-test="detail-item">
                     <span class="grow">
@@ -479,9 +490,8 @@ pub fn tx_detail(c: Ctx, id: Uuid) -> impl IntoView {
         let n = t.items.len();
         let income = t.kind == TxKind::Income;
         view! {
-            <p class="hint">{when}</p>
             <h1 class="title" data-test="detail-title">{tx_title(&d, t)}</h1>
-            <p class="big" class:income=income data-test="detail-amount">{signed(t)}</p>
+            <p class="huge" class:income=income data-test="detail-amount">{signed(t)}</p>
             {(t.currency != "PLN").then(|| view! { <p class="hint">{format!("{} at the NBP rate", pln(t.amount_pln))}</p> })}
             {meta.pending.then(|| view! { <p class="hint">"Waiting to send"</p> })}
             {t.duplicate_of.is_some().then(|| view! { <p class="hint">"Recorded by a receipt, not counted twice"</p> })}
@@ -495,9 +505,48 @@ pub fn tx_detail(c: Ctx, id: Uuid) -> impl IntoView {
             <button class="primary" data-test="tx-edit" on:click=move |_| c.screen.set(Screen::Edit(Some(id)))>"Edit"</button>
         }.into_any()
     };
+    let when = move || c.data.with(|d| d.txs.iter().find(|t| t.0 == id).map(|(_, t)| match &t.time {
+        Some(h) if !h.is_empty() => format!("{} · {h}", t.date.day_label(today().year)),
+        _ => t.date.day_label(today().year),
+    }).unwrap_or_default());
     view! {
-        <header class="row"><button class="back" data-test="detail-back" on:click=back>"‹ Back"</button></header>
+        <header class="detailhead">
+            <button class="back" data-test="detail-back" aria-label="Back" on:click=move |_| c.screen.set(Screen::Dashboard)>{icon(Icon::Back)}</button>
+            <span class="hint" data-test="detail-when">{when}</span>
+        </header>
         {body}
+    }
+}
+
+/// Theme picker. The choice is a record like any other, so it is encrypted and follows the user to every device.
+pub fn appearance(c: Ctx) -> impl IntoView {
+    let pick = move |theme: Theme| busy_task(c, async move {
+        let s = session(c)?;
+        let mut prefs = c.data.with_untracked(|d| d.prefs.clone());
+        prefs.theme = theme;
+        apply_theme(theme);
+        data::write(&s, named_id(&s.dek, b"prefs", "prefs"), KIND_PREFS, &prefs).await?;
+        after_write(c, &s).await;
+        Ok(())
+    });
+    let on = move |t: Theme| move || c.data.with(|d| d.prefs.theme == t);
+    view! {
+        <h2>"Appearance"</h2>
+        <div class="segmented">
+            <button data-test="theme-dark" class:active=on(Theme::Dark) on:click=move |_| pick(Theme::Dark)>"Dark"</button>
+            <button data-test="theme-light" class:active=on(Theme::Light) on:click=move |_| pick(Theme::Light)>"Light"</button>
+        </div>
+    }
+}
+
+/// Sets the theme on the page, and remembers it on this device so the sign-in screen opens in it too.
+pub fn apply_theme(theme: Theme) {
+    let Some(w) = web_sys::window() else { return };
+    if let Some(root) = w.document().and_then(|d| d.document_element()) {
+        let _ = root.set_attribute("data-theme", theme.code());
+    }
+    if let Ok(Some(ls)) = w.local_storage() {
+        let _ = ls.set_item("mmTheme", theme.code());
     }
 }
 
