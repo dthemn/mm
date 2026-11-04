@@ -3,6 +3,7 @@
 
 use crate::app::{Ctx, Screen, today};
 use crate::finance::{Doubts, Draft};
+use crate::icons::{Icon, icon};
 use js_sys::{Array, Float32Array, Function, Object, Promise, Reflect};
 use leptos::prelude::*;
 use leptos::task::spawn_local;
@@ -108,7 +109,7 @@ async fn fetch_text(url: &str) -> Result<String, String> {
     Ok(JsFuture::from(r.text().map_err(e)?).await.map_err(e)?.as_string().unwrap_or_default())
 }
 
-async fn sleep(ms: i32) {
+pub async fn sleep(ms: i32) {
     let p = Promise::new(&mut |ok, _| {
         if let Some(w) = web_sys::window() {
             let _ = w.set_timeout_with_callback_and_timeout_and_arguments_0(&ok, ms);
@@ -268,9 +269,33 @@ fn stop(stream: &Option<MediaStream>) {
     }
 }
 
+/// Calls a method of a JS object by name, for APIs that web-sys does not cover well.
+fn call(o: &JsValue, name: &str, args: &Array) -> Option<JsValue> {
+    let f = Reflect::get(o, &name.into()).ok()?.dyn_into::<Function>().ok()?;
+    f.apply(o, args).ok()
+}
+
+fn video_track(stream: &Option<MediaStream>) -> Option<web_sys::MediaStreamTrack> {
+    stream.as_ref()?.get_video_tracks().get(0).dyn_into().ok()
+}
+
+/// Turns the phone's light on or off. Browsers without torch support are told by the caller to hide the button.
+async fn set_torch(track: web_sys::MediaStreamTrack, on: bool) -> Result<(), String> {
+    let adv = Object::new();
+    let _ = Reflect::set(&adv, &"torch".into(), &on.into());
+    let c = Object::new();
+    let _ = Reflect::set(&c, &"advanced".into(), &Array::of1(&adv));
+    let p = call(&track, "applyConstraints", &Array::of1(&c)).ok_or("The light cannot be switched here")?;
+    JsFuture::from(p.dyn_into::<Promise>().map_err(|_| "no promise")?).await.map(|_| ())
+        .map_err(|_| "The light cannot be switched on this phone".to_string())
+}
+
+/// Full-screen camera: the shutter, the light and the gallery are within thumb reach.
 pub fn scan(c: Ctx) -> impl IntoView {
     let status = RwSignal::new(String::new());
     let camera = RwSignal::new(false);
+    let torch_ok = RwSignal::new(false);
+    let torch = RwSignal::new(false);
     let stream: StoredValue<Option<MediaStream>, LocalStorage> = StoredValue::new_local(None);
     let video = NodeRef::<leptos::html::Video>::new();
 
@@ -278,6 +303,7 @@ pub fn scan(c: Ctx) -> impl IntoView {
         crate::app::busy_task(c, async move {
             stream.with_value(stop);
             camera.set(false);
+            torch.set(false);
             let lines = recognize(gray, move |s| status.set(s)).await?;
             debug_lines(&lines);
             let parsed = receipt::parse(&lines);
@@ -306,6 +332,10 @@ pub fn scan(c: Ctx) -> impl IntoView {
             let node: &HtmlVideoElement = &el;
             node.set_src_object(Some(&s));
             stream.set_value(Some(s));
+            if let Some(track) = stream.with_value(video_track) {
+                let caps = call(&track, "getCapabilities", &Array::new()).unwrap_or(JsValue::UNDEFINED);
+                torch_ok.set(Reflect::get(&caps, &"torch".into()).ok().and_then(|t| t.as_bool()).unwrap_or(false));
+            }
             // The shutter is enabled only once frames arrive, otherwise a quick tap captures nothing.
             if let Ok(p) = node.play() {
                 let _ = JsFuture::from(p).await;
@@ -340,24 +370,45 @@ pub fn scan(c: Ctx) -> impl IntoView {
             }
         });
     };
+    let flip_torch = move |_| {
+        let Some(track) = stream.with_value(video_track) else { return };
+        let on = !torch.get_untracked();
+        spawn_local(async move {
+            match set_torch(track, on).await {
+                Ok(()) => torch.set(on),
+                Err(e) => c.error.set(e),
+            }
+        });
+    };
+    let close = move |_| {
+        c.error.set(String::new());
+        c.screen.set(Screen::Dashboard);
+    };
 
     view! {
-        <header class="row">
-            <h1>"Scan a receipt"</h1>
-            <button data-test="scan-manual" on:click=move |_| c.screen.set(Screen::Edit(None))>"Enter by hand"</button>
-        </header>
-        <div class="viewfinder" class:live=move || camera.get()>
+        <section class="camera" class:live=move || camera.get() data-test="camera">
             <video node_ref=video autoplay=true playsinline=true muted=true data-test="scan-video"></video>
-            {move || (!camera.get() && !c.busy.get()).then(|| view! {
-                <p class="hint">"The camera is not available. Choose a photo instead."</p>
-            })}
-        </div>
-        <p class="hint" data-test="scan-status">{move || status.get()}</p>
-        <button class="primary" data-test="shutter" disabled=move || !camera.get() || c.busy.get() on:click=shoot>"Take photo"</button>
-        <label class="button" class:disabled=move || c.busy.get()>
-            "Choose a photo"
-            <input type="file" accept="image/*" data-test="scan-file" class="file" on:change=pick disabled=move || c.busy.get() />
-        </label>
-        <p class="hint">"Recognition runs on this phone. The photo is never stored or sent anywhere."</p>
+            <div class="cam-top">
+                <button class="cam-round" data-test="scan-close" aria-label="Close" on:click=close>{icon(Icon::Close)}</button>
+                <button class="cam-round" class:on=move || torch.get() data-test="torch" aria-label="Light"
+                    aria-pressed=move || torch.get().to_string() hidden=move || !torch_ok.get() on:click=flip_torch>{icon(Icon::Flash)}</button>
+            </div>
+            <div class="cam-middle">
+                {move || (!camera.get() && !c.busy.get()).then(|| view! {
+                    <p data-test="no-camera">"The camera is not available. Choose a photo instead."</p>
+                })}
+                <p data-test="scan-status">{move || status.get()}</p>
+                <p class="cam-error">{move || c.error.get()}</p>
+            </div>
+            <div class="cam-bottom">
+                <label class="cam-round" class:disabled=move || c.busy.get() aria-label="Choose a photo">
+                    {icon(Icon::Gallery)}
+                    <input type="file" accept="image/*" data-test="scan-file" class="file" on:change=pick disabled=move || c.busy.get() />
+                </label>
+                <button class="shutter" data-test="shutter" aria-label="Take photo" disabled=move || !camera.get() || c.busy.get() on:click=shoot></button>
+                <button class="cam-round" data-test="scan-manual" aria-label="Enter by hand" on:click=move |_| c.screen.set(Screen::Edit(None))>{icon(Icon::Pencil)}</button>
+            </div>
+            <p class="cam-note">"Recognition runs on this phone. The photo is never stored or sent."</p>
+        </section>
     }
 }

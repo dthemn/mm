@@ -53,6 +53,19 @@ pub struct FilterState {
     pub to: RwSignal<String>,
     pub account: RwSignal<Option<Uuid>>,
     pub category: RwSignal<Option<Uuid>>,
+    pub tab: RwSignal<HomeTab>,
+    /// The calendar is open.
+    pub picker: RwSignal<bool>,
+    /// A day picked in the calendar: Home scrolls to it once.
+    pub jump: RwSignal<Option<Date>>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum HomeTab {
+    #[default]
+    Daily,
+    Monthly,
+    Summary,
 }
 
 impl FilterState {
@@ -63,6 +76,9 @@ impl FilterState {
             to: RwSignal::new(String::new()),
             account: RwSignal::new(None),
             category: RwSignal::new(None),
+            tab: RwSignal::new(HomeTab::Daily),
+            picker: RwSignal::new(false),
+            jump: RwSignal::new(None),
         }
     }
 
@@ -141,15 +157,18 @@ fn banners(c: Ctx) -> impl IntoView {
     }
 }
 
-fn filters(c: Ctx) -> impl IntoView {
+/// `yearly`: the arrows move by a year, for the Monthly tab.
+fn filters(c: Ctx, yearly: bool) -> impl IntoView {
     let f = c.filter;
     let shift = move |n: i32| {
         f.from.set(String::new());
         f.to.set(String::new());
-        f.month.update(|m| *m = m.offset(n));
+        f.month.update(|m| *m = m.offset(if yearly { n * 12 } else { n }));
     };
     let label = move || {
-        if f.from.with(String::is_empty) || f.to.with(String::is_empty) {
+        if yearly {
+            f.month.get().year.to_string()
+        } else if f.from.with(String::is_empty) || f.to.with(String::is_empty) {
             f.month.get().long()
         } else {
             "Custom period".to_string()
@@ -157,10 +176,14 @@ fn filters(c: Ctx) -> impl IntoView {
     };
     view! {
         <div class="month">
-            <button aria-label="Previous month" data-test="month-prev" on:click=move |_| shift(-1)>"‹"</button>
-            <strong data-test="month" data-month=move || f.month.get().display()>{label}</strong>
-            <button aria-label="Next month" data-test="month-next" on:click=move |_| shift(1)>"›"</button>
+            <button aria-label="Previous" data-test="month-prev" on:click=move |_| shift(-1)>"‹"</button>
+            <button class="month-label" data-test="month" data-month=move || f.month.get().display()
+                aria-label="Choose a date" on:click=move |_| f.picker.set(true)>
+                <strong>{label}</strong>{icon(Icon::Calendar)}
+            </button>
+            <button aria-label="Next" data-test="month-next" on:click=move |_| shift(1)>"›"</button>
         </div>
+        {move || f.picker.get().then(|| picker(c))}
         <details class="filters">
             <summary>"Filters"</summary>
             <div class="row">
@@ -303,7 +326,7 @@ fn tx_row(c: Ctx, d: &Data, id: Uuid, t: &Transaction, amount: bool) -> impl Int
                     {(t.kind == TxKind::Transfer).then(|| view! { <span class="hint">"Transfer, not counted"</span> })}
                     {(!meta.conflicts.is_empty()).then(|| view! { <span class="error" data-test="tx-conflict">"Needs a choice"</span> })}
                 </span>
-                <span class="amount" class:income=income hidden=!amount>
+                <span class="amount" class:income=income class:neg=t.kind == TxKind::Expense hidden=!amount>
                     <span data-test="tx-amount">{signed(t)}</span>
                     {second.map(|s| view! { <span class="hint">{s}</span> })}
                 </span>
@@ -330,89 +353,291 @@ fn net(minor: i64) -> String {
     }
 }
 
-/// Home: the month's totals, then every operation grouped by day, newest first.
-pub fn dashboard(c: Ctx) -> impl IntoView {
-    let body = move || {
-        let f = c.filter.build();
-        let month = c.filter.month.get();
-        let d = c.data.get();
-        let r: Dashboard = analytics::dashboard(&d.txs, &d.categories, &f, month);
-        let rows = analytics::filter_txs(&d.txs, &f, &d.categories);
-        let year = today().year;
-        let mut days: Vec<(Date, Vec<&Tx>)> = Vec::new();
-        for tx in rows {
-            match days.last_mut() {
-                Some((day, list)) if *day == tx.1.date => list.push(tx),
-                _ => days.push((tx.1.date, vec![tx])),
-            }
+fn money_class(minor: i64) -> &'static str {
+    if minor < 0 { "num neg" } else if minor > 0 { "num income" } else { "num" }
+}
+
+fn signed_pln(minor: i64) -> String {
+    if minor < 0 { net(minor) } else { pln(minor) }
+}
+
+fn slips(income: i64, expense: i64) -> impl IntoView {
+    let balance = income - expense;
+    view! {
+        <section class="summary" aria-label="Totals">
+            <div class="slip"><span class="label">"Spent"{icon(Icon::Wallet)}</span><strong data-test="dash-expense">{pln(expense)}</strong></div>
+            <div class="slip"><span class="label">"Income"{icon(Icon::Download)}</span><strong class="income" data-test="dash-income">{pln(income)}</strong></div>
+            <p class="balance"><span>"Balance"</span><strong class=money_class(balance.min(0)) data-test="dash-balance">{signed_pln(balance)}</strong></p>
+        </section>
+    }
+}
+
+fn tabs(c: Ctx) -> impl IntoView {
+    let t = c.filter.tab;
+    let go = move |x: HomeTab| move |_| t.set(x);
+    view! {
+        <nav class="hometabs" aria-label="Views">
+            <button data-test="tab-daily" class:active=move || t.get() == HomeTab::Daily on:click=go(HomeTab::Daily)>"Daily"</button>
+            <button data-test="tab-monthly" class:active=move || t.get() == HomeTab::Monthly on:click=go(HomeTab::Monthly)>"Monthly"</button>
+            <button data-test="tab-summary" class:active=move || t.get() == HomeTab::Summary on:click=go(HomeTab::Summary)>"Summary"</button>
+        </nav>
+    }
+}
+
+fn days_of(rows: Vec<&Tx>) -> Vec<(Date, Vec<&Tx>)> {
+    let mut days: Vec<(Date, Vec<&Tx>)> = Vec::new();
+    for tx in rows {
+        match days.last_mut() {
+            Some((day, list)) if *day == tx.1.date => list.push(tx),
+            _ => days.push((tx.1.date, vec![tx])),
         }
-        let list = if d.txs.is_empty() {
-            view! {
-                <p class="hint" data-test="empty">"No operations yet. Scan a receipt or add one by hand."</p>
-                <button class="primary" data-test="add-first" on:click=move |_| c.screen.set(Screen::Edit(None))>"Add the first one"</button>
-            }.into_any()
-        } else if days.is_empty() {
-            view! { <p class="hint" data-test="empty-list">"Nothing for this period."</p> }.into_any()
-        } else {
-            days.iter().map(|(day, list)| {
-                let total = day_net(list);
-                let gain = total > 0;
-                let many = list.len() > 1;
-                let rows: Vec<_> = list.iter().map(|(id, t)| tx_row(c, &d, *id, t, many)).collect();
-                view! {
-                    <section class="day" data-test="day">
-                        <div class="dayhead">
-                            <span data-test="day-label">{day.day_label(year)}</span>
-                            <span class="num" class:income=gain data-test="day-total">{net(total)}</span>
-                        </div>
-                        <ul class="txs">{rows}</ul>
-                    </section>
-                }
-            }).collect_view().into_any()
+    }
+    days
+}
+
+fn daily(c: Ctx, d: &Data, f: &Filter) -> AnyView {
+    let days = days_of(analytics::filter_txs(&d.txs, f, &d.categories));
+    let year = today().year;
+    if d.txs.is_empty() {
+        return view! {
+            <p class="hint" data-test="empty">"No operations yet. Scan a receipt or add one by hand."</p>
+            <button class="primary" data-test="add-first" on:click=move |_| c.screen.set(Screen::Edit(None))>"Add the first one"</button>
+        }.into_any();
+    }
+    if days.is_empty() {
+        return view! { <p class="hint" data-test="empty-list">"Nothing for this period."</p> }.into_any();
+    }
+    days.iter().map(|(day, list)| {
+        let total = day_net(list);
+        let many = list.len() > 1;
+        let rows: Vec<_> = list.iter().map(|(id, t)| tx_row(c, d, *id, t, many)).collect();
+        let wd = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][day.weekday() as usize];
+        let rest = if day.year == year { day.month_of().name().to_string() } else { day.month_of().long() };
+        view! {
+            <section class="day" data-test="day" data-date=day.iso() id=format!("day-{}", day.iso())>
+                <div class="dayhead" data-test="day-label" aria-label=day.day_label(year)>
+                    <span class="dnum">{format!("{:02}", day.day)}</span>
+                    <span class="wd">{wd}</span>
+                    <span class="dmonth">{rest}</span>
+                    <span class=money_class(total) data-test="day-total">{net(total)}</span>
+                </div>
+                <ul class="txs">{rows}</ul>
+            </section>
+        }
+    }).collect_view().into_any()
+}
+
+/// Twelve months of the year, newest first, with what came in and went out.
+fn monthly(c: Ctx, d: &Data, f: &Filter, year: i32) -> AnyView {
+    let now = today().month_of();
+    let rows = (1..=12u32).rev().filter_map(|m| {
+        let month = Month { year, month: m };
+        let mf = Filter { from: Some(month.first()), to: Some(month.last()), ..f.clone() };
+        let r = analytics::dashboard(&d.txs, &d.categories, &mf, month);
+        let future = (year, m) > (now.year, now.month);
+        (!(future && r.income == 0 && r.expense == 0)).then_some((month, r.income, r.expense))
+    }).map(|(month, inc, exp)| {
+        let total = inc - exp;
+        let open = move |_| {
+            c.filter.from.set(String::new());
+            c.filter.to.set(String::new());
+            c.filter.month.set(month);
+            c.filter.tab.set(HomeTab::Daily);
         };
         view! {
-            <section class="summary" aria-label="Month totals">
-                <div class="slip"><span class="label">"Spent"{icon(Icon::Wallet)}</span><strong data-test="dash-expense">{pln(r.expense)}</strong></div>
-                <div class="slip"><span class="label">"Income"{icon(Icon::Download)}</span><strong class="income" data-test="dash-income">{pln(r.income)}</strong></div>
-                <p class="balance"><span>"Balance"</span><strong data-test="dash-balance">{if r.balance < 0 { net(r.balance) } else { pln(r.balance) }}</strong></p>
-            </section>
-            {list}
+            <li>
+                <button class="monthrow" data-test="month-row" data-month=month.display() on:click=open>
+                    <span class="mname">{month.name()}</span>
+                    <span class="mfig"><span class="hint">"In"</span><span class="num income">{pln(inc)}</span></span>
+                    <span class="mfig"><span class="hint">"Out"</span><span class=money_class(-exp)>{if exp > 0 { format!("−{}", pln(exp)) } else { pln(0) }}</span></span>
+                    <span class="mfig"><span class="hint">"Total"</span><strong class=money_class(total)>{signed_pln(total)}</strong></span>
+                </button>
+            </li>
+        }
+    }).collect_view();
+    view! { <ul class="months" data-test="months">{rows}</ul> }.into_any()
+}
+
+/// Where the money of the period went, by category and by account.
+fn summary(c: Ctx, d: &Data, f: &Filter, r: &Dashboard) -> AnyView {
+    let max_cat = r.by_category.first().map(|x| x.1).unwrap_or(0);
+    let spent = r.expense.max(1);
+    let cats: Vec<_> = r.by_category.iter().map(|(id, v)| {
+        let id = *id;
+        let share = (*v as i128 * 100 / spent as i128) as i64;
+        view! {
+            <li>
+                <button class="barrow" data-test="cat-row" on:click=move |_| c.screen.set(Screen::Category(id))>
+                    <span class="line"><span>{d.category_name(id)}<span class="hint">{format!("  {share}%")}</span></span><span class="num">{pln(*v)}</span></span>
+                    {bar(*v, max_cat)}
+                </button>
+            </li>
+        }
+    }).collect();
+    let rows = analytics::filter_txs(&d.txs, f, &d.categories);
+    let mut income: Vec<(Uuid, i64)> = Vec::new();
+    let mut accounts: Vec<(Uuid, i64, i64)> = Vec::new();
+    for (_, t) in rows.iter().filter(|(_, t)| t.duplicate_of.is_none() && t.kind != TxKind::Transfer) {
+        if t.kind == TxKind::Income {
+            let cat = analytics::canonical(&d.categories, t.category_id);
+            match income.iter_mut().find(|x| x.0 == cat) {
+                Some(x) => x.1 += t.amount_pln,
+                None => income.push((cat, t.amount_pln)),
+            }
+        }
+        let (i, e) = if t.kind == TxKind::Income { (t.amount_pln, 0) } else { (0, t.amount_pln) };
+        match accounts.iter_mut().find(|x| x.0 == t.account_id) {
+            Some(x) => { x.1 += i; x.2 += e; }
+            None => accounts.push((t.account_id, i, e)),
+        }
+    }
+    income.sort_by_key(|x| -x.1);
+    let income_rows = income.iter().map(|(id, v)| view! {
+        <li class="line" data-test="income-row"><span>{d.category_name(*id)}</span><span class="num income">{format!("+{}", pln(*v))}</span></li>
+    }).collect_view();
+    let account_rows = accounts.iter().map(|(id, i, e)| {
+        let name = d.accounts.get(id).map(|a| a.name.clone()).unwrap_or_default();
+        view! {
+            <li class="line" data-test="account-row"><span>{name}</span>
+                <span class="num"><span class="income">{format!("+{}", pln(*i))}</span>" "<span class="neg">{format!("−{}", pln(*e))}</span></span></li>
+        }
+    }).collect_view();
+    let has_income = !income.is_empty();
+    view! {
+        <h2>"Expenses by category"</h2>
+        {if cats.is_empty() {
+            view! { <p class="hint">"No expenses in this period."</p> }.into_any()
+        } else {
+            view! { <ul class="bars">{cats}</ul> }.into_any()
+        }}
+        {has_income.then(|| view! { <h2>"Income"</h2><ul class="plain">{income_rows}</ul> })}
+        {(!accounts.is_empty()).then(|| view! { <h2>"By account"</h2><ul class="plain">{account_rows}</ul> })}
+    }.into_any()
+}
+
+/// Home: totals, then Daily, Monthly or Summary.
+pub fn dashboard(c: Ctx) -> impl IntoView {
+    // A day picked in the calendar: scroll to it, or to the nearest earlier day with operations.
+    Effect::new(move |_| {
+        let Some(want) = c.filter.jump.get() else { return };
+        let f = c.filter.build();
+        let target = c.data.with_untracked(|d| {
+            days_of(analytics::filter_txs(&d.txs, &f, &d.categories)).iter().map(|x| x.0).find(|day| *day <= want)
+        });
+        c.filter.jump.set(None);
+        let Some(day) = target else { return };
+        leptos::task::spawn_local(async move {
+            crate::scan::sleep(30).await;
+            if let Some(el) = web_sys::window().and_then(|w| w.document()).and_then(|d| d.get_element_by_id(&format!("day-{}", day.iso()))) {
+                el.scroll_into_view();
+            }
+        });
+    });
+    let body = move || {
+        let tab = c.filter.tab.get();
+        let d = c.data.get();
+        let month = c.filter.month.get();
+        let f = c.filter.build();
+        match tab {
+            HomeTab::Monthly => {
+                let year = month.year;
+                let yf = Filter { from: Date::new(year, 1, 1), to: Date::new(year, 12, 31), ..f.clone() };
+                let r = analytics::dashboard(&d.txs, &d.categories, &yf, month);
+                view! { {slips(r.income, r.expense)}{monthly(c, &d, &f, year)} }.into_any()
+            }
+            HomeTab::Daily => {
+                let r = analytics::dashboard(&d.txs, &d.categories, &f, month);
+                view! { {slips(r.income, r.expense)}{daily(c, &d, &f)} }.into_any()
+            }
+            HomeTab::Summary => {
+                let r = analytics::dashboard(&d.txs, &d.categories, &f, month);
+                view! { {slips(r.income, r.expense)}{summary(c, &d, &f, &r)} }.into_any()
+            }
         }
     };
     view! {
-        {filters(c)}
+        {tabs(c)}
+        {move || filters(c, c.filter.tab.get() == HomeTab::Monthly)}
         {banners(c)}
         {body}
     }
 }
 
-/// Where the money went: categories, six months, top merchants and subscriptions.
+/// Year, month and day in one sheet. A day opens Daily at that day.
+fn picker(c: Ctx) -> impl IntoView {
+    let f = c.filter;
+    let start = f.month.get_untracked();
+    let year = RwSignal::new(start.year);
+    let month = RwSignal::new(start.month);
+    let close = move || f.picker.set(false);
+    let apply = move |m: Month, day: Option<Date>| {
+        f.from.set(String::new());
+        f.to.set(String::new());
+        f.month.set(m);
+        if day.is_some() {
+            f.tab.set(HomeTab::Daily);
+        }
+        f.jump.set(day);
+        close();
+    };
+    let months = move || (1..=12u32).map(|m| {
+        let pick = move |_| month.set(m);
+        view! {
+            <button data-test="picker-month" class:active=move || month.get() == m on:click=pick>
+                {Month { year: year.get_untracked(), month: m }.short_name()}
+            </button>
+        }
+    }).collect_view();
+    let days = move || {
+        let m = Month { year: year.get(), month: month.get() };
+        let first = m.first();
+        let busy: std::collections::HashSet<Date> = c.data.with(|d| d.txs.iter().map(|t| t.1.date).filter(|x| x.month_of() == m).collect());
+        let now = today();
+        let blanks = (0..first.weekday()).map(|_| view! { <span></span> }).collect_view();
+        let cells = (1..=m.last().day).filter_map(|n| Date::new(m.year, m.month, n)).map(|day| {
+            let has = busy.contains(&day);
+            view! {
+                <button data-test="picker-day" data-date=day.iso() class:has=has class:today=day == now
+                    on:click=move |_| apply(m, Some(day))>{day.day}</button>
+            }
+        }).collect_view();
+        view! { {blanks}{cells} }
+    };
+    view! {
+        <div class="sheet-bg" on:click=move |_| close()></div>
+        <section class="sheet" data-test="picker" role="dialog" aria-label="Choose a date">
+            <div class="month">
+                <button aria-label="Previous year" data-test="picker-prev" on:click=move |_| year.update(|y| *y -= 1)>"‹"</button>
+                <strong data-test="picker-year">{move || year.get()}</strong>
+                <button aria-label="Next year" data-test="picker-next" on:click=move |_| year.update(|y| *y += 1)>"›"</button>
+            </div>
+            <div class="mgrid">{months}</div>
+            <div class="dgrid">
+                {["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"].map(|w| view! { <span class="hint">{w}</span> }).collect_view()}
+                {days}
+            </div>
+            <button class="primary" data-test="picker-apply" on:click=move |_| apply(Month { year: year.get_untracked(), month: month.get_untracked() }, None)>
+                {move || format!("Show {}", Month { year: year.get(), month: month.get() }.long())}
+            </button>
+            <button data-test="picker-today" on:click=move |_| { let t = today(); apply(t.month_of(), Some(t)) }>"Today"</button>
+        </section>
+    }
+}
+
+/// Trends over time: six months, top merchants and subscriptions.
 pub fn stats(c: Ctx) -> impl IntoView {
     let body = move || {
         let f = c.filter.build();
         let month = c.filter.month.get();
         let d = c.data.get();
         let r: Dashboard = analytics::dashboard(&d.txs, &d.categories, &f, month);
-        let max_cat = r.by_category.first().map(|x| x.1).unwrap_or(0);
         let max_shop = r.top_merchants.first().map(|x| x.1).unwrap_or(0);
-        let cats: Vec<_> = r.by_category.iter().map(|(id, v)| {
-            let id = *id;
-            view! {
-                <li>
-                    <button class="barrow" data-test="cat-row" on:click=move |_| c.screen.set(Screen::Category(id))>
-                        <span class="line"><span>{d.category_name(id)}</span><span class="num">{pln(*v)}</span></span>
-                        {bar(*v, max_cat)}
-                    </button>
-                </li>
-            }
-        }).collect();
         let shops: Vec<_> = r.top_merchants.iter().map(|(id, v)| view! {
             <li class="barrow" data-test="top-merchant">
                 <span class="line"><span>{d.merchant_name(*id).unwrap_or_default()}</span><span class="num">{pln(*v)}</span></span>
                 {bar(*v, max_shop)}
             </li>
         }).collect();
-        let has_cats = !r.by_category.is_empty();
         let has_shops = !r.top_merchants.is_empty();
         let subs = mm_core::dedup::recurring(&d.txs, |t| d.merchant_name(t.merchant_id).unwrap_or_else(|| t.note.clone()));
         let subs = if subs.is_empty() {
@@ -424,19 +649,13 @@ pub fn stats(c: Ctx) -> impl IntoView {
                     <li class="txrow" data-test="subscription">
                         <span class="grow"><span class="name">{r.name.clone()}</span>
                             <span class="hint">{format!("{every}, {} payments, last {}", r.count, r.last.display())}</span></span>
-                        <span class="amount"><span>{pln(r.amount_pln)}</span></span>
+                        <span class="amount neg"><span>{format!("−{}", pln(r.amount_pln))}</span></span>
                     </li>
                 }
             }).collect_view();
             view! { <ul class="txs">{rows}</ul> }.into_any()
         };
         view! {
-            <h2>"By category"</h2>
-            {if has_cats {
-                view! { <ul class="bars">{cats}</ul> }.into_any()
-            } else {
-                view! { <p class="hint">"No expenses in this period."</p> }.into_any()
-            }}
             <h2>"Last six months"</h2>
             <div class="legend" aria-hidden="true"><span class="key income"></span>"Income"<span class="key expense"></span>"Expenses"</div>
             {trend_chart(&r.trend)}
@@ -447,7 +666,7 @@ pub fn stats(c: Ctx) -> impl IntoView {
         }
     };
     view! {
-        {filters(c)}
+        {filters(c, false)}
         {banners(c)}
         {body}
     }
@@ -491,7 +710,7 @@ pub fn tx_detail(c: Ctx, id: Uuid) -> impl IntoView {
         let income = t.kind == TxKind::Income;
         view! {
             <h1 class="title" data-test="detail-title">{tx_title(&d, t)}</h1>
-            <p class="huge" class:income=income data-test="detail-amount">{signed(t)}</p>
+            <p class="huge" class:income=income class:neg=t.kind == TxKind::Expense data-test="detail-amount">{signed(t)}</p>
             {(t.currency != "PLN").then(|| view! { <p class="hint">{format!("{} at the NBP rate", pln(t.amount_pln))}</p> })}
             {meta.pending.then(|| view! { <p class="hint">"Waiting to send"</p> })}
             {t.duplicate_of.is_some().then(|| view! { <p class="hint">"Recorded by a receipt, not counted twice"</p> })}
@@ -572,7 +791,7 @@ pub fn category(c: Ctx, id: Uuid) -> impl IntoView {
     view! {
         <header class="row">
             <h1 data-test="category-title">{title}</h1>
-            <button on:click=move |_| c.screen.set(Screen::Stats)>"Back"</button>
+            <button on:click=move |_| { c.filter.tab.set(HomeTab::Summary); c.screen.set(Screen::Dashboard) }>"Back"</button>
         </header>
         <ul class="txs">{list}</ul>
     }
@@ -832,6 +1051,7 @@ pub fn edit(c: Ctx, id: Option<Uuid>) -> impl IntoView {
                     c.filter.from.set(String::new());
                     c.filter.to.set(String::new());
                     c.filter.month.set(t.date.month_of());
+                    c.filter.tab.set(HomeTab::Daily);
                     c.screen.set(Screen::Dashboard);
                     after_write(c, &s).await;
                     Ok(())

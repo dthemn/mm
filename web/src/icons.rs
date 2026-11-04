@@ -23,6 +23,11 @@ pub enum Icon {
     Repeat,
     Receipt,
     Transfer,
+    Close,
+    Flash,
+    Gallery,
+    Pencil,
+    Calendar,
 }
 
 fn paths(i: Icon) -> &'static [&'static str] {
@@ -48,6 +53,11 @@ fn paths(i: Icon) -> &'static [&'static str] {
         Icon::Repeat => &["M4 11V9a3 3 0 0 1 3-3h12", "M16 3l3 3-3 3", "M20 13v2a3 3 0 0 1-3 3H5", "M8 21l-3-3 3-3"],
         Icon::Receipt => &["M6 3h12v18l-2-1.5-2 1.5-2-1.5-2 1.5-2-1.5L6 21z", "M9 8h6", "M9 12h6", "M9 16h3"],
         Icon::Transfer => &["M4 8h14", "M15 5l3 3-3 3", "M20 16H6", "M9 13l-3 3 3 3"],
+        Icon::Close => &["M6 6l12 12", "M18 6L6 18"],
+        Icon::Flash => &["M13 2L5 14h6l-1 8 8-12h-6z"],
+        Icon::Gallery => &["M4 5h16v14H4z", "M4 16l5-5 4 4 3-3 4 4", "M15.5 9h.01"],
+        Icon::Pencil => &["M4 20h4L19 9l-4-4L4 16z", "M13.5 6.5l4 4"],
+        Icon::Calendar => &["M4 6h16v14H4z", "M4 10h16", "M8 3v5", "M16 3v5"],
     }
 }
 

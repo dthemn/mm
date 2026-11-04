@@ -114,6 +114,7 @@ class Device {
 
   async ops() {
     await this.click("nav-dashboard");
+    await this.click("tab-daily");
     await this.page.waitForSelector(q("dash-balance"));
   }
 
@@ -524,7 +525,7 @@ await test("categories count per item, and a category opens its items", async ()
   await fin.waitText("tx-title", "Rossmann");
   await fin.click("nav-dashboard");
   await fin.waitText("dash-expense", "44,35 zł");
-  await fin.click("nav-stats");
+  await fin.click("tab-summary");
   const rows = await fin.page.$$eval(q("cat-row"), (a) => a.map((e) => e.textContent.replaceAll("\u00a0", " ")));
   ok(rows.some((r) => r.includes("Household") && r.includes("20,00 zł")), `Household: ${rows}`);
   ok(rows.some((r) => r.includes("Food") && r.includes("3,19 zł")), `Food: ${rows}`);
@@ -536,13 +537,17 @@ await test("categories count per item, and a category opens its items", async ()
 });
 
 await test("home lists operations by day, newest first, and a tap shows the receipt lines", async () => {
-  await fin.click("nav-dashboard");
+  await fin.ops();
   await fin.page.waitForSelector(q("day"));
   const days = await fin.page.$$eval(q("day"), (a) => a.map((d) => ({
-    label: d.querySelector('[data-test="day-label"]').textContent,
+    label: d.querySelector('[data-test="day-label"]').getAttribute("aria-label"),
+    date: d.dataset.date,
     rows: d.querySelectorAll('[data-test="tx-row"]').length,
   })));
   ok(days.length >= 1 && days.every((d) => d.rows >= 1), `days: ${JSON.stringify(days)}`);
+  ok(days.every((d, i) => i === 0 || days[i - 1].date > d.date), `newest day first: ${days.map((d) => d.date)}`);
+  const red = await fin.page.$eval(".day .neg", (e) => getComputedStyle(e).color).catch(() => null);
+  ok(red && red !== await fin.page.$eval("body", (e) => getComputedStyle(e).color), `a day that cost money is tinted: ${red}`);
   ok(/^(Mon|Tue|Wed|Thu|Fri|Sat|Sun), \d+ [A-Z][a-z]+/.test(days[0].label), `day label: ${days[0].label}`);
   const amounts = await fin.page.$$eval(q("tx-amount"), (a) => a.map((e) => e.textContent));
   ok(amounts.every((t) => /^[+−⇄]/.test(t)), `every amount has a sign: ${amounts}`);
@@ -561,6 +566,58 @@ await test("home lists operations by day, newest first, and a tap shows the rece
   await fin.waitText("detail-title", "Rossmann");
   await fin.click("detail-back");
   await fin.page.waitForSelector(q("day"));
+});
+
+await test("Monthly lists the year's months, and a month opens its days", async () => {
+  await fin.ops();
+  const month = await fin.page.$eval(q("month"), (e) => e.dataset.month);
+  await fin.click("tab-monthly");
+  await fin.page.waitForSelector(q("month-row"));
+  eq(await fin.text("month"), month.split(".")[1], "the header shows the year");
+  const rows = await fin.page.$$eval(q("month-row"), (a) => a.map((e) => e.dataset.month));
+  ok(rows.includes(month), `this month is listed: ${rows}`);
+  ok(rows.every((m, i) => i === 0 || +rows[i - 1].split(".")[0] > +m.split(".")[0]), `newest month first: ${rows}`);
+  const mine = await fin.page.$$eval(q("month-row"), (a, m) => a.find((e) => e.dataset.month === m).textContent.replaceAll("\u00a0", " "), month);
+  ok(mine.includes("44,35 zł"), `the month's spending: ${mine}`);
+  await fin.page.$$eval(q("month-row"), (a, m) => a.find((e) => e.dataset.month === m).click(), month);
+  await fin.page.waitForSelector(q("day"));
+  ok(await fin.page.$eval(q("tab-daily"), (e) => e.classList.contains("active")), "back on Daily");
+});
+
+await test("the calendar jumps to any year, month and day", async () => {
+  await fin.ops();
+  await fin.click("month");
+  await fin.page.waitForSelector(q("picker"));
+  const year = +(await fin.text("picker-year"));
+  await fin.click("picker-prev");
+  eq(+(await fin.text("picker-year")), year - 1, "a year back");
+  await fin.page.$$eval(q("picker-month"), (a) => a[2].click());
+  await fin.click("picker-apply");
+  await fin.page.waitForFunction((s, want) => document.querySelector(s)?.dataset.month === want, {}, q("month"), `03.${year - 1}`);
+  ok(!(await fin.page.$(q("picker"))), "the calendar closes");
+  // Back to today's month, then to a day that has operations.
+  await fin.click("month");
+  await fin.click("picker-today");
+  await fin.page.waitForSelector(q("day"));
+  const day = await fin.page.$eval(q("day"), (e) => e.dataset.date);
+  await sleep(300); // the jump to today scrolls the list
+  await fin.click("month");
+  await fin.page.waitForSelector(q("picker-day"));
+  const has = await fin.page.$$eval(`${q("picker-day")}.has`, (a) => a.map((e) => e.dataset.date));
+  ok(has.includes(day), `days with operations are marked: ${has} / ${day}`);
+  if (process.env.SHOT_PICKER) await fin.page.screenshot({ path: process.env.SHOT_PICKER });
+  await fin.page.$$eval(q("picker-day"), (a, d) => a.find((e) => e.dataset.date === d).click(), day);
+  await fin.page.waitForSelector(`#day-${day}`);
+  ok(!(await fin.page.$(q("picker"))), "picking a day closes the calendar");
+});
+
+await test("Summary shows the period by category, income and account", async () => {
+  await fin.ops();
+  await fin.click("tab-summary");
+  await fin.page.waitForSelector(q("cat-row"));
+  ok((await fin.text("cat-row")).includes("%"), "a share of the spending");
+  await fin.page.waitForSelector(q("account-row"));
+  await fin.click("tab-daily");
 });
 
 await test("bad input stays on the form and changes nothing", async () => {
@@ -648,7 +705,8 @@ await test("merging a category moves its amounts", async () => {
   await fin.pick("merge-target", "Household", at);
   await (await fin.page.$$(q("merge")))[at].evaluate((e) => e.click());
   await fin.page.waitForFunction((s) => ![...document.querySelectorAll(s)].some((e) => e.value === "Food"), {}, q("category-name"));
-  await fin.click("nav-stats");
+  await fin.click("nav-dashboard");
+  await fin.click("tab-summary");
   await fin.page.waitForFunction((s) => [...document.querySelectorAll(s)].some((e) => e.textContent.includes("Household") && e.textContent.includes("23,19")), {}, q("cat-row"));
   const rows = await fin.page.$$eval(q("cat-row"), (a) => a.map((e) => e.textContent));
   ok(!rows.some((r) => r.includes("Food")), `merged away: ${rows}`);
@@ -800,11 +858,16 @@ await test("the recognizer is cached and works offline after the first scan", as
 await test("the camera opens, and a frame without a receipt is reported", async () => {
   await fin.click("nav-photo");
   await fin.page.waitForSelector(`${q("shutter")}:not([disabled])`, { timeout: 15000 });
+  const box = await fin.page.$eval(q("camera"), (e) => { const r = e.getBoundingClientRect(); return [r.width, r.height, window.innerWidth, window.innerHeight]; });
+  eq([box[0], box[1]], [box[2], box[3]], "the camera fills the screen");
+  ok(await fin.page.$eval(q("torch"), (e) => e.hidden), "no light button when the camera has no light");
+  if (process.env.SHOT_CAMERA) await fin.page.screenshot({ path: process.env.SHOT_CAMERA });
   await fin.click("shutter");
   const msg = await fin.page.waitForSelector(q("error"), { timeout: 60000 }).then((e) => e.evaluate((x) => x.textContent));
   ok(msg.includes("No receipt"), `explains the problem: ${msg}`);
   ok(await fin.page.$(q("scan-file")), "still on the scan screen, with the photo option");
-  await fin.click("nav-dashboard");
+  await fin.click("scan-close");
+  await fin.page.waitForSelector(q("dash-balance"));
 });
 
 const gotoMonth = async (d, want) => {

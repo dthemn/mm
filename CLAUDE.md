@@ -38,6 +38,10 @@ Principles, highest priority first:
   and Tesseract misread totals. ORT is an accepted exception to "Rust everywhere".
 - Look: monospace type, dashed rules, receipt-slip cards. Dark theme by default; the user's theme is an encrypted
   `prefs` record (id from `named_id`), cached in `localStorage.mmTheme` only so the sign-in screen opens in it.
+- Home has Daily, Monthly and Summary tabs (`FilterState.tab`); tapping the month opens a calendar sheet that can jump
+  to any year, month or day. Stats keeps the trend, top merchants and subscriptions.
+- The camera is a full-screen overlay. The light button shows only when `getCapabilities().torch` is true; whether
+  iPhone Safari offers it is unverified.
 - Only `main` scrolls; the page itself does not, so the tab bar (icons with small captions) stays at the bottom on iOS.
 - Categories are English: Food, Household, Subscriptions, Transport, Health, Clothing, Entertainment,
   Cafes & restaurants, Other. Built-ins have fixed ids. Merging sets `merged_into` instead of rewriting records.
@@ -82,7 +86,7 @@ docker compose -f compose.dev.yml up -d        # throwaway test DB on 127.0.0.1:
 cargo test -p mm-core                          # 149 tests
 cargo test -p mm-server                        # 21 tests, needs the test DB
 web/build.sh && cargo build -p mm-server
-node e2e/run.mjs > /tmp/e2e.log 2>&1           # 46 tests; write to a file, never pipe into head or tail
+node e2e/run.mjs > /tmp/e2e.log 2>&1           # 49 tests; write to a file, never pipe into head or tail
 LIMIT=90000 node e2e/scan.mjs                  # real receipts in samples/receipts, prints scores only
 SHOW=1 ...                                     # also prints recognized lines (sets localStorage.mmDebug)
 docker compose up --build -d                   # whole app on http://localhost:8080 (use localhost, not 127.0.0.1)
