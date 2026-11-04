@@ -1012,6 +1012,11 @@ await test("strict CSP and SRI: no violations, no inline scripts", async () => {
   const html = await r.text();
   ok(!/<script(?![^>]*src=)/.test(html), "inline script");
   ok(!html.includes("__") && html.includes('integrity="sha384-'), "SRI");
+  // A cache between the server and the phone must never pair a new index.html with an old script.
+  for (const f of ["/", "/boot.js", "/web.js", "/web_bg.wasm", "/app.css"]) {
+    eq((await fetch(`${ORIGIN}${f}`)).headers.get("cache-control"), "no-cache", `cache rule for ${f}`);
+  }
+  eq((await fetch(`${ORIGIN}/api/session`)).headers.get("cache-control"), "no-store", "API answers are never stored");
   const errors = [...phone.errors, ...tablet.errors, ...noPrf.errors, ...fin.errors]
     .filter((e) => !/Failed to load resource|ERR_INTERNET_DISCONNECTED|ERR_CONNECTION_REFUSED|net::/.test(e));
   eq(errors, [], "console errors");

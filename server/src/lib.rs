@@ -117,7 +117,12 @@ pub fn router(db: PgPool, cfg: &Config) -> Router {
     let mut r = Router::new().nest("/api", api);
     if let Some(dir) = &cfg.static_dir {
         let index = dir.join("index.html");
-        r = r.fallback_service(ServeDir::new(dir).fallback(ServeFile::new(index)));
+        // File names never change between releases, and index.html pins each file by its hash.
+        // A cache in between (Cloudflare, a proxy) must ask again every time, or a new index.html
+        // would meet an old script, fail the integrity check and leave a blank page.
+        let files = ServeDir::new(dir).fallback(ServeFile::new(index));
+        r = r.fallback_service(tower_http::set_header::SetResponseHeader::if_not_present(
+            files, header::CACHE_CONTROL, HeaderValue::from_static("no-cache")));
     }
     let r = r
         .layer(DefaultBodyLimit::disable())
