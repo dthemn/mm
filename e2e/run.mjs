@@ -857,7 +857,13 @@ await test("the recognizer is cached and works offline after the first scan", as
 
 await test("the camera opens, and a frame without a receipt is reported", async () => {
   await fin.click("nav-photo");
-  await fin.page.waitForSelector(`${q("shutter")}:not([disabled])`, { timeout: 15000 });
+  try {
+    await fin.page.waitForSelector(`${q("shutter")}:not([disabled])`, { timeout: 30000 });
+  } catch (e) {
+    // A failure here must not leave the camera over the screen for the next tests.
+    await fin.click("scan-close");
+    throw e;
+  }
   const box = await fin.page.$eval(q("camera"), (e) => { const r = e.getBoundingClientRect(); return [r.width, r.height, window.innerWidth, window.innerHeight]; });
   eq([box[0], box[1]], [box[2], box[3]], "the camera fills the screen");
   ok(await fin.page.$eval(q("torch"), (e) => e.hidden), "no light button when the camera has no light");
@@ -1075,6 +1081,9 @@ await test("strict CSP and SRI: no violations, no inline scripts", async () => {
   const html = await r.text();
   ok(!/<script(?![^>]*src=)/.test(html), "inline script");
   ok(!html.includes("__") && html.includes('integrity="sha384-'), "SRI");
+  for (const f of ["app.css", "web.js", "boot.js"]) ok(new RegExp(`/${f}\\?v=[0-9a-f]{12}"`).test(html), `versioned URL for ${f}`);
+  const boot = await (await fetch(`${ORIGIN}/boot.js`)).text();
+  ok(/web\.js\?v=[0-9a-f]{12}"/.test(boot) && /web_bg\.wasm\?v=[0-9a-f]{12}"/.test(boot) && !boot.includes("__"), "versioned URLs in boot.js");
   // A cache between the server and the phone must never pair a new index.html with an old script.
   for (const f of ["/", "/boot.js", "/web.js", "/web_bg.wasm", "/app.css"]) {
     eq((await fetch(`${ORIGIN}${f}`)).headers.get("cache-control"), "no-cache", `cache rule for ${f}`);

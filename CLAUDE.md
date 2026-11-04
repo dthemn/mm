@@ -105,8 +105,8 @@ Gotchas learned the hard way:
 - The auto-mode safety check blocks `git reset --hard`. Resolve merges by hand instead.
 - iPhone needs a real https address with a domain: plain http on a LAN IP disables passkeys, the camera and Web Locks,
   and Safari can wait forever without a passkey sheet on a certificate it does not trust (hence the 90 s limit).
-- Static files are served with `Cache-Control: no-cache`. File names never change, and Cloudflare cached them for
-  4 hours by default, so a new index.html met old scripts and failed the SRI check.
+- Static files are served with `Cache-Control: no-cache`, and `web/build.sh` adds `?v=<hash>` to every app URL:
+  Cloudflare rewrites Cache-Control for scripts to 4 hours, and a new index.html meeting an old script fails SRI.
 - An invite is deleted when registration finishes, and checked on the invite step via `/api/auth/invite/check`.
 
 ## Data and privacy rules

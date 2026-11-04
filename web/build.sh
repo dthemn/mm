@@ -24,8 +24,13 @@ fill() {
   sed "$@" "$f" > "$f.tmp" && mv "$f.tmp" "$f"
 }
 
-fill "$OUT/boot.js" -e "s|__WASM_SRI__|$(sri "$OUT/web_bg.wasm")|"
-fill "$OUT/index.html" -e "s|__CSS_SRI__|$(sri "$OUT/app.css")|" -e "s|__JS_SRI__|$(sri "$OUT/web.js")|" -e "s|__BOOT_SRI__|$(sri "$OUT/boot.js")|"
+# A version in every URL: a cache on the way (Cloudflare rewrites Cache-Control for scripts) can then never
+# pair a new index.html with an old file, which would fail the integrity check and show a blank page.
+ver() { openssl dgst -sha256 -hex "$1" | sed 's/.* //' | cut -c1-12; }
+
+fill "$OUT/boot.js" -e "s|__WASM_SRI__|$(sri "$OUT/web_bg.wasm")|" -e "s|__WASM_V__|$(ver "$OUT/web_bg.wasm")|" -e "s|__JS_V__|$(ver "$OUT/web.js")|"
+fill "$OUT/index.html" -e "s|__CSS_SRI__|$(sri "$OUT/app.css")|" -e "s|__JS_SRI__|$(sri "$OUT/web.js")|" -e "s|__BOOT_SRI__|$(sri "$OUT/boot.js")|" \
+  -e "s|__CSS_V__|$(ver "$OUT/app.css")|" -e "s|__JS_V__|$(ver "$OUT/web.js")|" -e "s|__BOOT_V__|$(ver "$OUT/boot.js")|"
 VERSION=$(cat "$OUT/index.html" "$OUT/boot.js" "$OUT/web.js" "$OUT/web_bg.wasm" | openssl dgst -sha256 -hex | sed 's/.* //' | cut -c1-16)
 fill "$OUT/sw.js" -e "s|__VERSION__|$VERSION|"
 echo "build $VERSION: app $(du -sh "$OUT/web_bg.wasm" | cut -f1), recognizer $(du -sh "$OUT/ocr" | cut -f1)"
