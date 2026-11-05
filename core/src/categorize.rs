@@ -65,7 +65,8 @@ fn suggest(merchant: &str, item: &str) -> Uuid {
     if pharmacy {
         return CAT_HEALTH;
     }
-    hit(WORDS, &i).or_else(|| hit(SHOPS, &m)).unwrap_or(CAT_OTHER)
+    // OCR sometimes splits a word ("Ludwi k900g"), so the name is also tried without spaces.
+    hit(WORDS, &i).or_else(|| hit(WORDS, &i.replace(' ', ""))).or_else(|| hit(SHOPS, &m)).unwrap_or(CAT_OTHER)
 }
 
 /// `rules` are personal corrections. A rule for this shop wins over a rule for any shop.
@@ -122,6 +123,7 @@ mod tests {
         assert_eq!(categorize(&[], None, "Biedronka", "LodyMarlAlmond120ml"), CAT_FOOD);
         assert_eq!(categorize(&[], None, "Biedronka", "LodyPatMarlKokos90ml"), CAT_FOOD);
         assert_eq!(categorize(&[], None, "Biedronka", "Ludwik900g"), CAT_HOUSEHOLD);
+        assert_eq!(categorize(&[], None, "Biedronka", "Ludwi k900g"), CAT_HOUSEHOLD, "a word split by OCR");
     }
 
     #[test]

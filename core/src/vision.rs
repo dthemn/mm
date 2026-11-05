@@ -260,13 +260,26 @@ fn flatten(g: &Gray) -> Gray {
     Gray { w: g.w, h: g.h, px }
 }
 
+/// Light text on a dark background, as in a screenshot of an e-receipt in dark mode: most of the picture is dark,
+/// and no bright area is big enough to be paper (a white barcode panel is not).
+fn light_on_dark(g: &Gray, paper: Option<(usize, usize, usize, usize)>) -> bool {
+    let thr = otsu(&g.px);
+    let dark = g.px.iter().filter(|p| **p <= thr).count();
+    let paper_share = paper.map_or(0.0, |(_, _, w, h)| (w * h) as f64 / (g.w * g.h) as f64);
+    dark * 10 > g.px.len() * 6 && paper_share < 0.3
+}
+
 /// The full preparation of a photo for recognition.
 pub fn prepare(mut g: Gray) -> Gray {
     let side = g.w.max(g.h);
     if side > MAX_SIDE {
         g = g.resized(g.w * MAX_SIDE / side, g.h * MAX_SIDE / side);
     }
-    if let Some((x, y, w, h)) = paper_box(&g) {
+    let paper = paper_box(&g);
+    if light_on_dark(&g, paper) {
+        // A screenshot of an e-receipt in a dark app: the whole picture is the receipt, with inverted colors.
+        g.px.iter_mut().for_each(|p| *p = 255 - *p);
+    } else if let Some((x, y, w, h)) = paper {
         g = g.crop(x, y, w, h);
     }
     let angle = skew_of(&g);
@@ -293,6 +306,40 @@ mod tests {
         let rows: Vec<f64> = g.px.chunks_exact(g.w).map(|r| r.iter().map(|p| *p as f64).sum::<f64>() / g.w as f64).collect();
         let mean = rows.iter().sum::<f64>() / rows.len() as f64;
         rows.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / rows.len() as f64
+    }
+
+    /// Light text rows on a dark screen, with a white barcode panel at the bottom.
+    fn dark_screenshot() -> Gray {
+        let mut g = Gray::new(400, 800, 22);
+        for y in 40..600 {
+            for x in 30..370 {
+                if y % 30 < 8 && (x / 12) % 3 != 0 {
+                    g.px[y * 400 + x] = 230;
+                }
+            }
+        }
+        for y in 660..760 {
+            for x in 30..370 {
+                g.px[y * 400 + x] = if (x / 5) % 2 == 0 { 250 } else { 10 };
+            }
+        }
+        g
+    }
+
+    #[test]
+    fn a_dark_screenshot_is_inverted_not_cropped_to_its_barcode() {
+        let g = dark_screenshot();
+        assert!(light_on_dark(&g, paper_box(&g)));
+        let p = prepare(g);
+        assert_eq!((p.w, p.h), (400, 800), "the whole screen is kept");
+        let mean = p.px.iter().map(|x| *x as f64).sum::<f64>() / p.px.len() as f64;
+        assert!(mean > 150.0, "the background becomes light: {mean}");
+    }
+
+    #[test]
+    fn a_receipt_on_a_dark_table_is_not_inverted() {
+        let g = scene(0.0);
+        assert!(!light_on_dark(&g, paper_box(&g)));
     }
 
     #[test]

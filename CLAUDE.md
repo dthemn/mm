@@ -48,6 +48,8 @@ Principles, highest priority first:
   choice): the DEK is kept under a separate non-extractable WebCrypto key (`keep:` in `mm-device`), valid only while
   `localStorage.mmKeepUntil` matches, so Lock revokes it at once. iOS drops background pages, so memory alone is not enough.
   Test devices start with 1 min.
+- Screenshots of e-receipts in a dark app (light text on dark) are inverted before recognition, not cropped to
+  their white barcode panel (`vision::light_on_dark`). Private sample in `samples/screens/` (git-ignored).
 - Only `main` scrolls; the page itself does not, so the tab bar (icons with small captions) stays at the bottom on iOS.
 - Income has its own built-in categories (`Category.income`): Salary, Bonus, Cashback, Gift, Refund, Other income
   (ids `builtin(20..25)`). The form lists the ones matching the kind; statement rows get one from `income_category`.
@@ -95,7 +97,7 @@ to home screen and OCR speed on a mid-range Android are still unverified. No VPS
 
 ```sh
 docker compose -f compose.dev.yml up -d        # throwaway test DB on 127.0.0.1:55432
-cargo test -p mm-core                          # 154 tests
+cargo test -p mm-core                          # 156 tests
 cargo test -p mm-server                        # 21 tests, needs the test DB
 web/build.sh && cargo build -p mm-server
 node e2e/run.mjs > /tmp/e2e.log 2>&1           # 55 tests; write to a file, never pipe into head or tail
