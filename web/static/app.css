@@ -254,3 +254,13 @@ h2.rule-head { font-size: 13px; text-transform: uppercase; letter-spacing: 1px; 
 .split-items { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lines li.group { padding: 12px 0 6px; border-bottom: 1px solid var(--rule); }
 .lines li.group + li, .lines li.group ~ li:not(.group) { padding-left: 10px; }
+
+/* Stats search: one field, then how often, how much and for how much. */
+.search { display: flex; align-items: center; gap: 8px; border: 1px dashed var(--rule); border-radius: 10px; padding: 0 12px; }
+.search .icon { width: 20px; height: 20px; color: var(--muted); }
+.search input { border: 0; padding: 8px 0; min-height: 44px; background: transparent; }
+.search input:focus { outline: none; }
+.search:focus-within { border-color: var(--accent); border-style: solid; }
+.found { display: flex; flex-direction: column; gap: 2px; padding: 4px 0 8px; border-bottom: 1px dashed var(--rule); }
+.found-sum { font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.found-sum.neg { color: var(--neg); } .found-sum.income { color: var(--income); }

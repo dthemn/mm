@@ -50,6 +50,8 @@ Principles, highest priority first:
   Test devices start with 1 min.
 - Screenshots of e-receipts in a dark app (light text on dark) are inverted before recognition, not cropped to
   their white barcode panel (`vision::light_on_dark`). Private sample in `samples/screens/` (git-ignored).
+- Stats search (`analytics::search`): every word must appear in an item name, category, merchant or note; it adds up
+  purchases, quantity per unit and money, for the period or all time. Suggestions come from the user's own data.
 - Only `main` scrolls; the page itself does not, so the tab bar (icons with small captions) stays at the bottom on iOS.
 - Income has its own built-in categories (`Category.income`): Salary, Bonus, Cashback, Gift, Refund, Other income
   (ids `builtin(20..25)`). The form lists the ones matching the kind; statement rows get one from `income_category`.
@@ -97,10 +99,10 @@ to home screen and OCR speed on a mid-range Android are still unverified. No VPS
 
 ```sh
 docker compose -f compose.dev.yml up -d        # throwaway test DB on 127.0.0.1:55432
-cargo test -p mm-core                          # 156 tests
+cargo test -p mm-core                          # 158 tests
 cargo test -p mm-server                        # 21 tests, needs the test DB
 web/build.sh && cargo build -p mm-server
-node e2e/run.mjs > /tmp/e2e.log 2>&1           # 55 tests; write to a file, never pipe into head or tail
+node e2e/run.mjs > /tmp/e2e.log 2>&1           # 56 tests; write to a file, never pipe into head or tail
 LIMIT=90000 node e2e/scan.mjs                  # real receipts in samples/receipts, prints scores only
 SHOW=1 ...                                     # also prints recognized lines (sets localStorage.mmDebug)
 docker compose up --build -d                   # whole app on http://localhost:8080 (use localhost, not 127.0.0.1)

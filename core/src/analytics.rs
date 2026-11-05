@@ -2,7 +2,8 @@
 
 use crate::date::{Date, Month};
 use crate::model::*;
-use crate::money::allocate;
+use crate::categorize::fold;
+use crate::money::{Qty, allocate};
 use std::collections::{BTreeMap, HashMap};
 use uuid::Uuid;
 
@@ -188,6 +189,116 @@ pub fn dashboard(txs: &[Tx], cats: &HashMap<Uuid, Category>, f: &Filter, month: 
     d
 }
 
+/// One line found by a search: a receipt line, or a whole operation without lines.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Hit {
+    pub tx: Uuid,
+    pub date: Date,
+    pub kind: TxKind,
+    pub merchant: Option<String>,
+    /// The receipt line, or the note of an operation without lines.
+    pub name: String,
+    /// Quantity and its unit, for receipt lines.
+    pub qty: Option<(Qty, String)>,
+    pub amount_pln: i64,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Found {
+    /// Newest first.
+    pub hits: Vec<Hit>,
+    pub spent: i64,
+    pub received: i64,
+    /// Operations with at least one hit.
+    pub purchases: usize,
+    /// Quantities added up per unit, the most common unit first.
+    pub quantities: Vec<(String, Qty)>,
+}
+
+/// "szt", "pcs" and nothing are one unit; others keep their name.
+fn unit_of(u: &str) -> String {
+    match u.trim().to_lowercase().as_str() {
+        "" | "szt" | "szt." | "pcs" | "op" | "op." => "pcs".into(),
+        other => other.trim_end_matches('.').to_string(),
+    }
+}
+
+/// Lines whose item name, category, merchant or note contains the words of `query`, within the filter's period and
+/// account. Case, Polish letters and punctuation do not matter.
+pub fn search(txs: &[Tx], cats: &HashMap<Uuid, Category>, merchant: impl Fn(Option<Uuid>) -> Option<String>, f: &Filter, query: &str) -> Found {
+    let words: Vec<String> = fold(query).split(' ').filter(|w| !w.is_empty()).map(String::from).collect();
+    let mut out = Found::default();
+    if words.is_empty() {
+        return out;
+    }
+    let all = |text: &str| { let t = fold(text); words.iter().all(|w| t.contains(w.as_str())) };
+    let cat_name = |id: Uuid| cats.get(&id).map(|c| c.name.clone()).unwrap_or_default();
+    let mut units: Vec<(String, i64, usize)> = vec![];
+    for (id, t) in filter_txs(txs, &Filter { category: None, exclude: vec![], ..f.clone() }, cats) {
+        if !counts(t) {
+            continue;
+        }
+        let shop = merchant(t.merchant_id);
+        let whole = shop.as_deref().is_some_and(all) || all(&t.note);
+        let mut found = false;
+        for p in parts(t, cats) {
+            let item = p.item.and_then(|i| t.items.get(i));
+            let hit = whole || all(&cat_name(p.category)) || item.is_some_and(|i| all(&i.name) || all(&i.raw_name));
+            if !hit {
+                continue;
+            }
+            found = true;
+            match t.kind {
+                TxKind::Income => out.received += p.amount_pln,
+                _ => out.spent += p.amount_pln,
+            }
+            let qty = item.map(|i| (i.qty, unit_of(&i.unit)));
+            if let Some((q, u)) = &qty {
+                match units.iter_mut().find(|x| x.0 == *u) {
+                    Some(x) => { x.1 += q.thousandths(); x.2 += 1; }
+                    None => units.push((u.clone(), q.thousandths(), 1)),
+                }
+            }
+            out.hits.push(Hit {
+                tx: *id, date: t.date, kind: t.kind, merchant: shop.clone(),
+                name: item.map(|i| i.name.clone()).unwrap_or_else(|| if t.note.is_empty() { cat_name(p.category) } else { t.note.clone() }),
+                qty, amount_pln: p.amount_pln,
+            });
+        }
+        out.purchases += usize::from(found);
+    }
+    units.sort_by_key(|u| std::cmp::Reverse(u.2));
+    out.quantities = units.into_iter().map(|(u, n, _)| (u, Qty::from_thousandths(n))).collect();
+    out
+}
+
+/// Words to suggest while searching: item names, categories and merchants from the user's own data,
+/// the most frequent first.
+pub fn suggestions(txs: &[Tx], cats: &HashMap<Uuid, Category>, merchant: impl Fn(Option<Uuid>) -> Option<String>) -> Vec<String> {
+    let mut seen: HashMap<String, (String, usize)> = HashMap::new();
+    let mut add = |s: &str| {
+        let s = s.trim();
+        if s.chars().count() < 2 {
+            return;
+        }
+        seen.entry(fold(s)).or_insert_with(|| (s.to_string(), 0)).1 += 1;
+    };
+    for (_, t) in txs {
+        for i in &t.items {
+            add(&i.name);
+        }
+        if let Some(m) = merchant(t.merchant_id) {
+            add(&m);
+        }
+    }
+    for c in cats.values().filter(|c| c.merged_into.is_none()) {
+        add(&c.name);
+    }
+    let mut v: Vec<(String, usize)> = seen.into_values().collect();
+    v.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    v.into_iter().map(|x| x.0).collect()
+}
+
 /// A row in the list opened from a category.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CategoryLine {
@@ -215,7 +326,6 @@ pub fn category_lines(txs: &[Tx], cats: &HashMap<Uuid, Category>, f: &Filter, ca
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::money::Qty;
 
     const A: Uuid = Uuid::from_u128(11);
     const B: Uuid = Uuid::from_u128(12);
@@ -397,6 +507,47 @@ mod tests {
         let g = groups(&t.1, &none());
         assert_eq!(g.iter().map(|x| x.amount_pln).sum::<i64>(), 2276);
         assert_eq!(g.last().unwrap(), &Group { category: C, amount_pln: 100, items: vec![] });
+    }
+
+    #[test]
+    fn search_adds_up_one_product_across_receipts() {
+        let mut a = tx(TxKind::Expense, d(10, 5), 1000, C);
+        let mut milk = item("Mleko 3,2% 1L", 450, A);
+        milk.qty = Qty::parse("2").unwrap();
+        milk.unit = "szt".into();
+        a.1.items = vec![milk, item("Chleb", 550, A)];
+        let mut b = tx(TxKind::Expense, d(10, 9), 349, C);
+        b.1.items = vec![item("MLEKO UHT", 349, A)];
+        let c = tx(TxKind::Expense, d(10, 10), 2000, C);
+        let txs = [a, b, c];
+        let f = of(month(2026, 10));
+        let r = search(&txs, &none(), |_| None, &f, "mleko");
+        assert_eq!(r.spent, 799);
+        assert_eq!(r.purchases, 2);
+        assert_eq!(r.hits.len(), 2);
+        assert_eq!(r.hits[0].date, d(10, 9), "newest first");
+        assert_eq!(r.quantities, vec![("pcs".to_string(), Qty::parse("3").unwrap())]);
+        assert!(search(&txs, &none(), |_| None, &f, "  ").hits.is_empty());
+        assert_eq!(search(&txs, &none(), |_| None, &f, "mleko uht").spent, 349, "every word must match");
+        let outside = Filter { from: Some(d(10, 6)), ..f.clone() };
+        assert_eq!(search(&txs, &none(), |_| None, &outside, "mleko").spent, 349, "the period applies");
+    }
+
+    #[test]
+    fn search_finds_by_merchant_and_category() {
+        let mut cats = HashMap::new();
+        cats.insert(A, Category { name: "Food".into(), merged_into: None, income: false });
+        let shop = Uuid::from_u128(99);
+        let mut a = tx(TxKind::Expense, d(10, 5), 1000, B);
+        a.1.merchant_id = Some(shop);
+        a.1.items = vec![item("Chleb", 600, A), item("Mydło", 400, B)];
+        let txs = [a];
+        let name = |m: Option<Uuid>| (m == Some(shop)).then(|| "Żabka".to_string());
+        let f = of(month(2026, 10));
+        assert_eq!(search(&txs, &cats, name, &f, "zabka").spent, 1000, "a merchant finds the whole receipt");
+        assert_eq!(search(&txs, &cats, name, &f, "food").spent, 600, "a category finds its lines");
+        let s = suggestions(&txs, &cats, name);
+        assert!(s.contains(&"Chleb".to_string()) && s.contains(&"Żabka".to_string()) && s.contains(&"Food".to_string()), "{s:?}");
     }
 
     #[test]

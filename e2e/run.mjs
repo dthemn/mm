@@ -1108,6 +1108,32 @@ await test("Stats splits the month in a ring by category, and a tapped category 
   await fin.click("stats-expense");
 });
 
+await test("search on Stats adds up one product, with words from the user's own receipts", async () => {
+  await fin.click("nav-stats");
+  const words = await fin.page.$$eval("#search-words option", (a) => a.map((o) => o.value));
+  ok(words.includes("Chleb") && words.includes("Rossmann") && words.includes("Household"), `suggestions: ${words.slice(0, 20)}`);
+  await fin.page.click(q("search"));
+  await fin.page.keyboard.type("chl");
+  await fin.page.keyboard.type("eb");
+  eq(await fin.page.evaluate(() => document.activeElement?.dataset.test), "search", "typing keeps the focus");
+  await fin.click("search-all");
+  await fin.page.waitForSelector(q("search-hit"));
+  const hits = await fin.page.$$eval(q("search-hit"), (a) => a.map((e) => e.textContent));
+  ok(hits.length >= 2 && hits.every((h) => /chleb/i.test(h)), `only bread lines: ${hits}`);
+  ok(/\d+ purchases/.test(await fin.text("search-count")), `count: ${await fin.text("search-count")}`);
+  const toNum = (t) => Number(t.replace(/[^\d,]/g, "").replace(",", "."));
+  const lineSum = hits.reduce((a, h) => a + toNum(h.replace(/^[^−+]*/, "")), 0);
+  eq(toNum(await fin.text("search-spent")), +lineSum.toFixed(2), "the sum is the lines' sum");
+  if (process.env.SHOT_SEARCH) await fin.page.screenshot({ path: process.env.SHOT_SEARCH });
+  await fin.page.$eval(q("search"), (e) => { e.select(); });
+  await fin.page.keyboard.type("nothing like this");
+  await fin.page.waitForSelector(q("search-none"));
+  await fin.click("search-period");
+  await fin.page.$eval(q("search"), (e) => { e.select(); });
+  await fin.page.keyboard.press("Backspace");
+  await fin.page.waitForSelector(q("stats-expense"));
+});
+
 await test("the theme is dark by default, and light is saved in the account", async () => {
   const theme = () => fin.page.evaluate(() => document.documentElement.dataset.theme);
   eq(await theme(), "dark", "dark by default");

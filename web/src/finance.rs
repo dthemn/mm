@@ -62,6 +62,9 @@ pub struct FilterState {
     pub excluded: RwSignal<Vec<Uuid>>,
     /// Stats shows the split of spending, or of income.
     pub stats_income: RwSignal<bool>,
+    /// Words searched on Stats, and whether the search covers all time instead of the chosen period.
+    pub search: RwSignal<String>,
+    pub search_all: RwSignal<bool>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -85,6 +88,8 @@ impl FilterState {
             jump: RwSignal::new(None),
             excluded: RwSignal::new(vec![]),
             stats_income: RwSignal::new(false),
+            search: RwSignal::new(String::new()),
+            search_all: RwSignal::new(false),
         }
     }
 
@@ -708,9 +713,62 @@ fn donut<F: Fn(Uuid) + Copy + Send + Sync + 'static>(slices: &[(Uuid, i64, usize
     }
 }
 
+/// What a search found: how often, how much of it, and for how much, then every line.
+fn search_results(c: Ctx, d: &Data, f: &Filter, query: &str) -> AnyView {
+    let f = if c.filter.search_all.get() { Filter { from: None, to: None, ..f.clone() } } else { f.clone() };
+    let r = analytics::search(&d.txs, &d.categories, |m| d.merchant_name(m), &f, query);
+    let all = c.filter.search_all.get();
+    let scope = view! {
+        <div class="segmented">
+            <button data-test="search-period" class:active=!all on:click=move |_| c.filter.search_all.set(false)>"This period"</button>
+            <button data-test="search-all" class:active=all on:click=move |_| c.filter.search_all.set(true)>"All time"</button>
+        </div>
+    };
+    if r.hits.is_empty() {
+        return view! { {scope}<p class="hint" data-test="search-none">{format!("Nothing found for “{}”.", query.trim())}</p> }.into_any();
+    }
+    let times = if r.purchases == 1 { "1 purchase".to_string() } else { format!("{} purchases", r.purchases) };
+    let amounts = r.quantities.iter().map(|(u, q)| format!("{} {u}", q.display())).collect::<Vec<_>>().join(" · ");
+    let shown = r.hits.len().min(100);
+    let rows = r.hits.iter().take(shown).map(|h| {
+        let target = open_tx(d, h.tx);
+        let what = [Some(h.date.display()), h.merchant.clone(), h.qty.as_ref().map(|(q, u)| format!("{} {u}", q.display()))]
+            .into_iter().flatten().collect::<Vec<_>>().join(" · ");
+        let income = h.kind == TxKind::Income;
+        let sign = if income { "+" } else { "−" };
+        view! {
+            <li>
+                <button class="txrow" data-test="search-hit" on:click=move |_| c.screen.set(target.clone())>
+                    <span class="grow">
+                        <span class="what"><span class="name">{h.name.clone()}</span></span>
+                        <span class="hint">{what}</span>
+                    </span>
+                    <span class="amount" class:income=income class:neg=!income><span>{format!("{sign}{}", pln(h.amount_pln))}</span></span>
+                </button>
+            </li>
+        }
+    }).collect_view();
+    view! {
+        {scope}
+        <div class="found" data-test="search-summary">
+            <p class="hint">{format!("“{}”", query.trim())}</p>
+            <p data-test="search-count">{times}{(!amounts.is_empty()).then(|| format!(" · {amounts}"))}</p>
+            {(r.spent > 0).then(|| view! { <p class="found-sum neg" data-test="search-spent">{format!("−{}", pln(r.spent))}</p> })}
+            {(r.received > 0).then(|| view! { <p class="found-sum income" data-test="search-received">{format!("+{}", pln(r.received))}</p> })}
+        </div>
+        <ul class="txs">{rows}</ul>
+        {(r.hits.len() > shown).then(|| view! { <p class="hint">{format!("The first {shown} of {} lines.", r.hits.len())}</p> })}
+    }.into_any()
+}
+
 pub fn stats(c: Ctx) -> impl IntoView {
     let toggle = move |id: Uuid| c.filter.excluded.update(|v| if let Some(i) = v.iter().position(|x| *x == id) { v.remove(i); } else { v.push(id); });
     let body = move || {
+        let query = c.filter.search.get();
+        if !query.trim().is_empty() {
+            let d = c.data.get();
+            return search_results(c, &d, &c.filter.build(), &query);
+        }
         let mut f = c.filter.build();
         let month = c.filter.month.get();
         let income = c.filter.stats_income.get();
@@ -797,11 +855,21 @@ pub fn stats(c: Ctx) -> impl IntoView {
             {has_shops.then(|| view! { <h2>"Top merchants"</h2><ul class="bars">{shops}</ul> })}
             <h2>"Subscriptions"</h2>
             {subs}
-        }
+        }.into_any()
     };
+    // The input sits outside `body`, so typing does not rebuild it and keeps the focus.
+    let words = move || c.data.with(|d| analytics::suggestions(&d.txs, &d.categories, |m| d.merchant_name(m)))
+        .into_iter().take(300).map(|w| view! { <option value=w></option> }).collect_view();
     view! {
         {filters(c, false)}
         {banners(c)}
+        <div class="search">
+            {icon(Icon::Search)}
+            <input type="search" data-test="search" list="search-words" autocomplete="off" enterkeyhint="search"
+                placeholder="Search items, shops, categories" aria-label="Search"
+                prop:value=move || c.filter.search.get() on:input=move |e| c.filter.search.set(event_target_value(&e)) />
+            <datalist id="search-words">{words}</datalist>
+        </div>
         {body}
     }
 }

@@ -84,6 +84,10 @@ impl Qty {
         self.0
     }
 
+    pub fn from_thousandths(n: i64) -> Self {
+        Self(n)
+    }
+
     /// The canonical form uses a dot and drops trailing zeros.
     fn canonical(self, sep: char) -> String {
         let (w, f) = (self.0 / 1000, self.0 % 1000);
