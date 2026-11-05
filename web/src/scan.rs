@@ -123,14 +123,49 @@ async fn breathe() {
     sleep(0).await;
 }
 
+/// Stops the recognizer's worker, so the next photo starts with a fresh one and the phone gets its memory back.
+fn drop_worker() {
+    if let Some(o) = OCR.with(|o| o.borrow_mut().take()) {
+        o.worker.terminate();
+    }
+}
+
+/// Says in plain words that the phone ran out of memory, instead of the runtime's message.
+fn explain(err: String) -> String {
+    let low = err.to_lowercase();
+    if low.contains("out of memory") || low.contains("bad_alloc") {
+        "The phone ran out of memory for the recognizer. Close other tabs or apps and try again.".into()
+    } else {
+        err
+    }
+}
+
 pub async fn recognize(gray: Gray, progress: impl Fn(String)) -> Result<Vec<Line>, String> {
     progress("Preparing the photo…".into());
     breathe().await;
-    let ocr = Ocr::get().await?;
     let page = prepare(gray);
+    // A worker that failed may keep a broken runtime or most of its memory: one more try runs in a new worker.
+    match read_page(&page, &progress).await {
+        Ok(lines) => Ok(lines),
+        Err(first) => {
+            drop_worker();
+            if first.starts_with("The recognizer could not be downloaded") {
+                return Err(first);
+            }
+            let again = read_page(&page, &progress).await;
+            if again.is_err() {
+                drop_worker();
+            }
+            again.map_err(explain)
+        }
+    }
+}
+
+async fn read_page(page: &Gray, progress: &impl Fn(String)) -> Result<Vec<Line>, String> {
+    let ocr = Ocr::get().await?;
     progress("Finding text…".into());
     breathe().await;
-    let (prob, dims) = ocr.run("det", Some(&ocr::det_input(&page))).await?;
+    let (prob, dims) = ocr.run("det", Some(&ocr::det_input(page))).await?;
     if dims.len() != 4 {
         return Err("Unexpected detector output".into());
     }
@@ -140,7 +175,7 @@ pub async fn recognize(gray: Gray, progress: impl Fn(String)) -> Result<Vec<Line
         if i % 4 == 0 {
             progress(format!("Reading line {} of {}…", i + 1, boxes.len()));
         }
-        let Some(t) = ocr::rec_input(&page, b) else { continue };
+        let Some(t) = ocr::rec_input(page, b) else { continue };
         let (out, d) = ocr.run("rec", Some(&t)).await?;
         if d.len() == 3 {
             let (text, conf) = ocr::ctc_decode(&out, d[2], &ocr.dict);

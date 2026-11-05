@@ -123,6 +123,9 @@ Gotchas learned the hard way:
   and Safari can wait forever without a passkey sheet on a certificate it does not trust (hence the 90 s limit).
 - Static files are served with `Cache-Control: no-cache`, and `web/build.sh` adds `?v=<hash>` to every app URL:
   Cloudflare rewrites Cache-Control for scripts to 4 hours, and a new index.html meeting an old script fails SRI.
+- ONNX Runtime Web reserves 4 GB of shared wasm memory, which phones refuse ("RangeError: Out of memory").
+  `web/build.sh` lowers the maximum to 1 GB; receipts need between 256 and 512 MB. The OCR cache in `sw.js` is named
+  after the recognizer files' hash, so a changed file reaches phones that cached the old one.
 - An invite is deleted when registration finishes, and checked on the invite step via `/api/auth/invite/check`.
 
 ## Data and privacy rules

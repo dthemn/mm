@@ -1,8 +1,8 @@
 // App shell only. API responses are never cached: data lives in IndexedDB.
 const CACHE = "mm-__VERSION__";
 // The recognizer is large and changes rarely, so it lives in its own cache that survives app updates.
-// Its files are fetched once, on the first scan.
-const OCR = "mm-ocr-1";
+// Its files are fetched once, on the first scan. The name follows their hash, so a changed file replaces the old one.
+const OCR = "mm-ocr-__OCR_VERSION__";
 const FILES = ["/", "/index.html", "/app.css", "/boot.js", "/web.js", "/web_bg.wasm", "/manifest.webmanifest", "/icon.svg", "/ocr-worker.js"];
 
 self.addEventListener("install", (e) => {

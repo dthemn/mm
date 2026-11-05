@@ -902,7 +902,7 @@ await test("the photo never leaves the device", async () => {
 });
 
 await test("the recognizer is cached and works offline after the first scan", async () => {
-  const cached = await fin.page.evaluate(async () => (await (await caches.open("mm-ocr-1")).keys()).map((r) => new URL(r.url).pathname).sort());
+  const cached = await fin.page.evaluate(async () => (await (await caches.open((await caches.keys()).find((k) => k.startsWith("mm-ocr-")))).keys()).map((r) => new URL(r.url).pathname).sort());
   ok(cached.includes("/ocr/det.onnx") && cached.includes("/ocr/rec.onnx"), `cached: ${cached}`);
   await fin.offline(true);
   try {

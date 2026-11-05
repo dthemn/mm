@@ -6,7 +6,9 @@ ort.env.wasm.wasmPaths = "/ocr/";
 ort.env.wasm.numThreads = self.crossOriginIsolated ? Math.min(4, navigator.hardwareConcurrency || 2) : 1;
 
 const sessions = {};
-const session = (name) => (sessions[name] ??= ort.InferenceSession.create(`/ocr/${name}.onnx`, { executionProviders: ["wasm"] }));
+// A failed load is forgotten, so a later request tries again instead of getting the same error.
+const session = (name) => (sessions[name] ??= ort.InferenceSession.create(`/ocr/${name}.onnx`, { executionProviders: ["wasm"] })
+  .catch((e) => { delete sessions[name]; throw e; }));
 
 self.onmessage = async ({ data: { id, op, input, h, w } }) => {
   try {
