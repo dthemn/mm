@@ -24,6 +24,7 @@ main { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: tou
   width: 100%; max-width: 480px; margin: 0 auto;
   padding: max(16px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) 24px max(20px, env(safe-area-inset-left));
   display: flex; flex-direction: column; gap: 12px; }
+main > * { flex-shrink: 0; }
 h1 { font-size: 26px; margin: 12px 0 4px; letter-spacing: -.5px; } h2 { font-size: 18px; margin: 20px 0 0; }
 p { margin: 0; }
 button, input, textarea, select { font: inherit; color: inherit; min-height: 44px; border-radius: 10px; border: 1px solid var(--line); background: transparent; padding: 8px 14px; width: 100%; }
@@ -218,3 +219,38 @@ h2.rule-head { font-size: 13px; text-transform: uppercase; letter-spacing: 1px; 
 .igrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px 8px; }
 .igrid label { font-size: 12px; gap: 2px; min-width: 0; }
 .igrid input, .igrid select { min-height: 36px; padding: 4px 8px; font-size: 15px; border-radius: 6px; min-width: 0; }
+
+/* Stats: a ring per category. Eight fixed hues per theme (validated for both surfaces and colour blindness),
+   gray for Other. The list beside it carries names and exact amounts, so colour is never the only cue. */
+:root { --s0: #77766f; --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181; --s6: #008300; --s7: #9085e9; --s8: #e66767; }
+:root[data-theme="light"] { --s0: #a3a198; --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --s5: #e87ba4; --s6: #008300; --s7: #6250d6; --s8: #e34948; }
+.s0 { --c: var(--s0); } .s1 { --c: var(--s1); } .s2 { --c: var(--s2); } .s3 { --c: var(--s3); } .s4 { --c: var(--s4); }
+.s5 { --c: var(--s5); } .s6 { --c: var(--s6); } .s7 { --c: var(--s7); } .s8 { --c: var(--s8); }
+.flowtabs { display: grid; grid-template-columns: 1fr 1fr; border-bottom: 1px dashed var(--rule); }
+.flowtabs button { border: 0; border-radius: 0; border-bottom: 3px solid transparent; display: flex; flex-direction: column; align-items: center;
+  gap: 0; padding: 6px 4px 8px; color: var(--muted); font-size: 13px; min-width: 0; }
+.flowtabs button strong { font-size: clamp(14px, 4.4vw, 18px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.flowtabs button.active { color: var(--fg); border-bottom-color: var(--accent); }
+.donut { display: block; width: min(72vw, 260px); height: auto; margin: 8px auto 0; }
+.donut .ring { fill: none; stroke: var(--track); stroke-width: 16; }
+.donut .slice { fill: none; stroke: var(--c); stroke-width: 16; cursor: pointer; }
+.donut-label { fill: var(--muted); font: 9px var(--mono); }
+.donut-total { fill: var(--fg); font: 700 12px var(--mono); }
+.center { text-align: center; }
+.pie-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.pie-row { display: flex; align-items: center; gap: 10px; border: 0; border-bottom: 1px dashed var(--rule); border-radius: 0; padding: 6px 0; text-align: left; }
+.pie-row .swatch { width: 12px; height: 12px; border-radius: 3px; background: var(--c); flex: none; }
+.pie-row .pct { width: 4ch; flex: none; color: var(--muted); font-size: 14px; }
+.pie-row .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pie-row.off { color: var(--muted); } .pie-row.off .swatch { background: transparent; border: 1.5px solid var(--c); }
+.pie-row.off .name { text-decoration: line-through; }
+
+/* A receipt with lines in several categories: each category, its sum and its lines, under the operation. */
+.split { list-style: none; margin: -4px 0 8px 40px; padding: 0 0 0 12px; border-left: 1px dashed var(--rule); display: flex; flex-direction: column; gap: 4px; cursor: pointer; }
+.split li { display: flex; flex-direction: column; min-width: 0; }
+.split .line { font-size: 14px; }
+.split-cat { color: var(--fg); }
+.split .num { color: var(--neg); font-size: 14px; }
+.split-items { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lines li.group { padding: 12px 0 6px; border-bottom: 1px solid var(--rule); }
+.lines li.group + li, .lines li.group ~ li:not(.group) { padding-left: 10px; }

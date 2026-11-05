@@ -58,6 +58,10 @@ pub struct FilterState {
     pub picker: RwSignal<bool>,
     /// A day picked in the calendar: Home scrolls to it once.
     pub jump: RwSignal<Option<Date>>,
+    /// Categories tapped off in the Stats chart. They leave every number on that screen.
+    pub excluded: RwSignal<Vec<Uuid>>,
+    /// Stats shows the split of spending, or of income.
+    pub stats_income: RwSignal<bool>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -79,6 +83,8 @@ impl FilterState {
             tab: RwSignal::new(HomeTab::Daily),
             picker: RwSignal::new(false),
             jump: RwSignal::new(None),
+            excluded: RwSignal::new(vec![]),
+            stats_income: RwSignal::new(false),
         }
     }
 
@@ -92,7 +98,7 @@ impl FilterState {
 
     fn build(&self) -> Filter {
         let (from, to) = self.period();
-        Filter { from: Some(from), to: Some(to), account: self.account.get(), category: self.category.get() }
+        Filter { from: Some(from), to: Some(to), account: self.account.get(), category: self.category.get(), exclude: vec![] }
     }
 }
 
@@ -310,10 +316,33 @@ fn tx_row(c: Ctx, d: &Data, id: Uuid, t: &Transaction, amount: bool) -> impl Int
         n => format!(" · {n} items"),
     };
     let picture = crate::icons::for_tx(t, cat);
+    // A receipt with lines in several categories shows each one under the row, with its lines and sum.
+    let groups = analytics::groups(t, &d.categories);
+    let mixed = groups.len() > 1;
     // Without a merchant or note the title already is the category name.
     let named = d.merchant_name(t.merchant_id).is_some() || !t.note.is_empty();
-    let tail = if named { format!(" · {}{items}", d.category_name(cat)) } else { items };
+    let tail = if mixed {
+        format!(" · {} categories{items}", groups.len())
+    } else if named {
+        format!(" · {}{items}", d.category_name(cat))
+    } else {
+        items
+    };
     let target = open_tx(d, id);
+    let split = mixed.then(|| {
+        let rows = groups.iter().map(|g| {
+            let names = g.items.iter().filter_map(|i| t.items.get(*i)).map(|i| i.name.clone()).collect::<Vec<_>>().join(", ");
+            view! {
+                <li data-test="split-group">
+                    <span class="line"><span class="split-cat">{d.category_name(g.category)}</span>
+                        <span class="num">{format!("−{}", pln(g.amount_pln))}</span></span>
+                    {(!names.is_empty()).then(|| view! { <span class="split-items">{names}</span> })}
+                </li>
+            }
+        }).collect_view();
+        let target = target.clone();
+        view! { <ul class="split" data-test="split" on:click=move |_| c.screen.set(target.clone())>{rows}</ul> }
+    });
     view! {
         <li>
             <button class="txrow" data-test="tx-row" on:click=move |_| c.screen.set(target.clone())>
@@ -331,6 +360,7 @@ fn tx_row(c: Ctx, d: &Data, id: Uuid, t: &Transaction, amount: bool) -> impl Int
                     {second.map(|s| view! { <span class="hint">{s}</span> })}
                 </span>
             </button>
+            {split}
         </li>
     }
 }
@@ -625,12 +655,92 @@ fn picker(c: Ctx) -> impl IntoView {
 }
 
 /// Trends over time: six months, top merchants and subscriptions.
+/// The chart color of a category: a fixed slot per category, so a color never moves to another one when a
+/// category is tapped off. Built-ins come first in their fixed order; "Other" and anything past eight is gray.
+fn color_slot(d: &Data, income: bool, id: Uuid) -> usize {
+    if id == CAT_OTHER || id == CAT_INCOME_OTHER {
+        return 0;
+    }
+    let mut ids: Vec<Uuid> = d.categories_of(income).into_iter().map(|x| x.0)
+        .filter(|i| *i != CAT_OTHER && *i != CAT_INCOME_OTHER).collect();
+    ids.sort_by_key(|i| (!is_builtin(*i), *i));
+    ids.iter().position(|i| *i == id).filter(|p| *p < 8).map_or(0, |p| p + 1)
+}
+
+fn is_builtin(id: Uuid) -> bool {
+    // Built-in ids count up from the first one.
+    id.as_u128().wrapping_sub(CAT_FOOD.as_u128()) < 1000
+}
+
+/// Whole percent of `part` in `total`, at least 1 for anything above zero.
+fn percent(part: i64, total: i64) -> i64 {
+    if total <= 0 || part <= 0 {
+        return 0;
+    }
+    ((part as i128 * 100 + total as i128 / 2) / total as i128).max(1) as i64
+}
+
+/// A ring of slices, one per category, drawn as dashes on one circle so a single category is a full ring.
+fn donut<F: Fn(Uuid) + Copy + Send + Sync + 'static>(slices: &[(Uuid, i64, usize, String)], total: i64, caption: &'static str, on_tap: F) -> impl IntoView + use<F> {
+    let gap = if slices.len() > 1 { 0.6 } else { 0.0 };
+    let mut start = 0.0f64;
+    let rings = slices.iter().map(|(id, v, slot, name)| {
+        let share = if total > 0 { *v as f64 * 100.0 / total as f64 } else { 0.0 };
+        let len = (share - gap).max(0.15);
+        let dash = format!("{len:.3} {:.3}", 100.0 - len);
+        let offset = format!("{:.3}", -start);
+        start += share;
+        let id = *id;
+        view! {
+            <circle class=format!("slice s{slot}") cx="60" cy="60" r="46" pathLength="100" stroke-dasharray=dash stroke-dashoffset=offset
+                data-test="pie-slice" on:click=move |_| on_tap(id)>
+                <title>{format!("{name}: {}, {}%", pln(*v), percent(*v, total))}</title>
+            </circle>
+        }
+    }).collect_view();
+    view! {
+        <svg class="donut" data-test="donut" viewBox="0 0 120 120" role="img" aria-label=format!("{caption} by category")>
+            <circle class="ring" cx="60" cy="60" r="46"/>
+            <g transform="rotate(-90 60 60)">{rings}</g>
+            <text class="donut-label" x="60" y="54" text-anchor="middle">{caption}</text>
+            <text class="donut-total" x="60" y="70" text-anchor="middle" data-test="donut-total">{pln(total)}</text>
+        </svg>
+    }
+}
+
 pub fn stats(c: Ctx) -> impl IntoView {
+    let toggle = move |id: Uuid| c.filter.excluded.update(|v| if let Some(i) = v.iter().position(|x| *x == id) { v.remove(i); } else { v.push(id); });
     let body = move || {
-        let f = c.filter.build();
+        let mut f = c.filter.build();
         let month = c.filter.month.get();
+        let income = c.filter.stats_income.get();
+        let excluded = c.filter.excluded.get();
         let d = c.data.get();
+        let all: Dashboard = analytics::dashboard(&d.txs, &d.categories, &f, month);
+        f.exclude = excluded.clone();
         let r: Dashboard = analytics::dashboard(&d.txs, &d.categories, &f, month);
+        let rows = if income { &all.income_by_category } else { &all.by_category };
+        let shown_total = if income { r.income } else { r.expense };
+        let slices: Vec<(Uuid, i64, usize, String)> = rows.iter().filter(|x| !excluded.contains(&x.0) && x.1 > 0)
+            .map(|(id, v)| (*id, *v, color_slot(&d, income, *id), d.category_name(*id))).collect();
+        let list = rows.iter().map(|(id, v)| {
+            let (id, v) = (*id, *v);
+            let off = excluded.contains(&id);
+            let slot = color_slot(&d, income, id);
+            let pct = if off { "off".to_string() } else { format!("{}%", percent(v, shown_total)) };
+            view! {
+                <li>
+                    <button class="pie-row" class:off=off data-test="pie-row" data-cat=id.to_string() aria-pressed=(!off).to_string() on:click=move |_| toggle(id)>
+                        <span class=format!("swatch s{slot}")></span>
+                        <span class="pct num">{pct}</span>
+                        <span class="grow name">{d.category_name(id)}</span>
+                        <span class="num">{pln(v)}</span>
+                    </button>
+                </li>
+            }
+        }).collect_view();
+        let empty = rows.is_empty();
+        let hidden = excluded.iter().filter(|e| rows.iter().any(|r| r.0 == **e)).count();
         let max_shop = r.top_merchants.first().map(|x| x.1).unwrap_or(0);
         let shops: Vec<_> = r.top_merchants.iter().map(|(id, v)| view! {
             <li class="barrow" data-test="top-merchant">
@@ -656,6 +766,30 @@ pub fn stats(c: Ctx) -> impl IntoView {
             view! { <ul class="txs">{rows}</ul> }.into_any()
         };
         view! {
+            <div class="flowtabs" role="tablist">
+                <button role="tab" data-test="stats-income" class:active=income aria-selected=income.to_string()
+                    on:click=move |_| c.filter.stats_income.set(true)>
+                    <span>"Income"</span><strong class="num">{pln(r.income)}</strong>
+                </button>
+                <button role="tab" data-test="stats-expense" class:active=!income aria-selected=(!income).to_string()
+                    on:click=move |_| c.filter.stats_income.set(false)>
+                    <span>"Expenses"</span><strong class="num">{pln(r.expense)}</strong>
+                </button>
+            </div>
+            {if empty {
+                view! { <p class="hint" data-test="pie-empty">{if income { "No income in this period." } else { "No spending in this period." }}</p> }.into_any()
+            } else {
+                view! {
+                    {donut(&slices, shown_total, if income { "Income" } else { "Spent" }, toggle)}
+                    <p class="hint center">"Tap a category to leave it out of this screen."</p>
+                    <ul class="pie-list">{list}</ul>
+                    {(hidden > 0).then(|| view! {
+                        <button class="dashed" data-test="pie-reset" on:click=move |_| c.filter.excluded.set(vec![])>
+                            {format!("Show all ({hidden} left out)")}
+                        </button>
+                    })}
+                }.into_any()
+            }}
             <h2>"Last six months"</h2>
             <div class="legend" aria-hidden="true"><span class="key income"></span>"Income"<span class="key expense"></span>"Expenses"</div>
             {trend_chart(&r.trend)}
@@ -682,7 +816,7 @@ pub fn tx_detail(c: Ctx, id: Uuid) -> impl IntoView {
         let meta = d.meta.get(&id).cloned().unwrap_or_default();
         let account = d.accounts.get(&t.account_id).map(|a| a.name.clone()).unwrap_or_default();
         let facts = [
-            ("Category:", d.category_name(analytics::canonical(&d.categories, t.category_id))),
+            ("Category:", analytics::groups(t, &d.categories).iter().map(|g| d.category_name(g.category)).collect::<Vec<_>>().join(", ")),
             ("Account:", account),
             ("Paid by:", t.payment.label().to_string()),
             ("NIP:", t.nip.clone().unwrap_or_default()),
@@ -691,10 +825,12 @@ pub fn tx_detail(c: Ctx, id: Uuid) -> impl IntoView {
         let facts = facts.into_iter().filter(|(_, v)| !v.is_empty()).map(|(k, v)| view! {
             <div><dt>{k}</dt><dd>{v}</dd></div>
         }).collect_view();
-        let lines = t.items.iter().map(|i| {
+        let groups = analytics::groups(t, &d.categories);
+        let mixed = groups.len() > 1;
+        let line = |i: &LineItem| {
             let unit = if i.unit.is_empty() || i.unit == "szt" || i.unit == "pcs" { String::new() } else { format!(" {}", i.unit) };
-            let how = format!("{}{unit} × {} · {}", i.qty.display(), format_money(i.unit_price, &t.currency),
-                d.category_name(analytics::canonical(&d.categories, i.category_id)));
+            let cat = if mixed { String::new() } else { format!(" · {}", d.category_name(analytics::canonical(&d.categories, i.category_id))) };
+            let how = format!("{}{unit} × {}{cat}", i.qty.display(), format_money(i.unit_price, &t.currency));
             view! {
                 <li data-test="detail-item">
                     <span class="grow">
@@ -705,7 +841,21 @@ pub fn tx_detail(c: Ctx, id: Uuid) -> impl IntoView {
                     <span class="num">{format_money(i.total, &t.currency)}</span>
                 </li>
             }
-        }).collect_view();
+        };
+        let lines = if mixed {
+            groups.iter().map(|g| {
+                let rows = g.items.iter().filter_map(|i| t.items.get(*i)).map(line).collect_view();
+                let label = if g.items.is_empty() { format!("{} (not on a line)", d.category_name(g.category)) } else { d.category_name(g.category) };
+                view! {
+                    <li class="group" data-test="detail-group">
+                        <span class="line"><strong>{label}</strong><strong class="num" data-test="group-sum">{pln(g.amount_pln)}</strong></span>
+                    </li>
+                    {rows}
+                }
+            }).collect_view().into_any()
+        } else {
+            t.items.iter().map(line).collect_view().into_any()
+        };
         let n = t.items.len();
         let income = t.kind == TxKind::Income;
         view! {
@@ -864,10 +1014,11 @@ impl ItemDraft {
     }
 }
 
-fn category_select(c: Ctx, sig: RwSignal<Uuid>, test: &'static str) -> impl IntoView {
+/// Expense categories, or income ones when `income` is true.
+fn category_select(c: Ctx, sig: RwSignal<Uuid>, test: &'static str, income: Signal<bool>) -> impl IntoView {
     view! {
         <select data-test=test on:change=move |e| if let Ok(id) = event_target_value(&e).parse() { sig.set(id) }>
-            {move || c.data.with(Data::active_categories).into_iter().map(|(id, x)| view! {
+            {move || c.data.with(|d| d.categories_of(income.get())).into_iter().map(|(id, x)| view! {
                 <option value=id.to_string() selected=move || analytics_same(c, sig.get(), id)>{x.name}</option>
             }).collect_view()}
         </select>
@@ -943,6 +1094,10 @@ pub fn edit(c: Ctx, id: Option<Uuid>) -> impl IntoView {
     let payment = RwSignal::new(o.map(|t| t.payment).unwrap_or_default());
     let account = RwSignal::new(o.map(|t| t.account_id).unwrap_or(default_account));
     let category = RwSignal::new(o.map(|t| t.category_id).unwrap_or(CAT_OTHER));
+    // Income saved before income categories existed has an expense one: offer the income list instead.
+    if o.is_some_and(|t| t.kind == TxKind::Income) && !d.categories.get(&category.get_untracked()).is_some_and(|x| x.income) {
+        category.set(CAT_INCOME_OTHER);
+    }
     let note = RwSignal::new(o.map(|t| t.note.clone()).unwrap_or_default());
     let items = RwSignal::new(o.map(|t| t.items.iter().enumerate()
         .map(|(i, it)| ItemDraft::from(it, doubts.items.get(i).copied().unwrap_or(false))).collect::<Vec<_>>()).unwrap_or_default());
@@ -1086,9 +1241,18 @@ pub fn edit(c: Ctx, id: Option<Uuid>) -> impl IntoView {
                     <label>"Price"<input data-test="item-price" inputmode="decimal" prop:value=move || i.price.get() on:input=move |e| i.price.set(event_target_value(&e)) /></label>
                     <label>"Discount"<input data-test="item-discount" inputmode="decimal" prop:value=move || i.discount.get() on:input=move |e| i.discount.set(event_target_value(&e)) /></label>
                     <label>"VAT %"<input data-test="item-vat" inputmode="decimal" prop:value=move || i.vat.get() on:input=move |e| i.vat.set(event_target_value(&e)) /></label>
-                    <label>"Category"{category_select(c, i.category, "item-category")}</label>
+                    <label>"Category"{category_select(c, i.category, "item-category", Signal::stored(false))}</label>
                 </div>
             </li>
+        }
+    };
+    // Income has its own categories: switching the kind moves the category to the matching list.
+    let set_kind = move |k: TxKind| {
+        kind.set(k);
+        let want_income = k == TxKind::Income;
+        let is_income = c.data.with_untracked(|d| d.categories.get(&category.get_untracked()).is_some_and(|x| x.income));
+        if want_income != is_income {
+            category.set(if want_income { CAT_INCOME_OTHER } else { CAT_OTHER });
         }
     };
     let upload_status = RwSignal::new(String::new());
@@ -1114,9 +1278,9 @@ pub fn edit(c: Ctx, id: Option<Uuid>) -> impl IntoView {
         })}
         {boxes}
         <div class="segmented">
-            <button data-test="kind-expense" class:active=move || kind.get() == TxKind::Expense on:click=move |_| kind.set(TxKind::Expense)>"Expense"</button>
-            <button data-test="kind-income" class:active=move || kind.get() == TxKind::Income on:click=move |_| kind.set(TxKind::Income)>"Income"</button>
-            <button data-test="kind-transfer" class:active=move || kind.get() == TxKind::Transfer on:click=move |_| kind.set(TxKind::Transfer)>"Transfer"</button>
+            <button data-test="kind-expense" class:active=move || kind.get() == TxKind::Expense on:click=move |_| set_kind(TxKind::Expense)>"Expense"</button>
+            <button data-test="kind-income" class:active=move || kind.get() == TxKind::Income on:click=move |_| set_kind(TxKind::Income)>"Income"</button>
+            <button data-test="kind-transfer" class:active=move || kind.get() == TxKind::Transfer on:click=move |_| set_kind(TxKind::Transfer)>"Transfer"</button>
         </div>
         {scanned.then(|| view! {
             <p class="hint" data-test="scan-hint">{if doubts.merchant || doubts.date || doubts.total || doubts.nip || doubts.items.contains(&true) {
@@ -1171,7 +1335,7 @@ pub fn edit(c: Ctx, id: Option<Uuid>) -> impl IntoView {
                     <p class="warn" data-test="nip-warning">"This NIP looks wrong. You can still save."</p>
                 })
             }}
-            <label class="f">"Category"{category_select(c, category, "f-category")}</label>
+            <label class="f">"Category"{category_select(c, category, "f-category", Signal::derive(move || kind.get() == TxKind::Income))}</label>
             <label class="f">"Account"
                 <select data-test="f-account" on:change=move |e| if let Ok(i) = event_target_value(&e).parse() { account.set(i) }>
                     {move || c.data.with(Data::account_list).into_iter().map(|(i, a)| view! {
@@ -1233,6 +1397,7 @@ pub fn manage(c: Ctx, m: Manage) -> impl IntoView {
 
 fn categories(c: Ctx) -> impl IntoView {
     let draft = RwSignal::new(String::new());
+    let new_income = RwSignal::new(false);
     let add = move |_| {
         let name = draft.get_untracked().trim().to_string();
         if name.is_empty() {
@@ -1241,20 +1406,23 @@ fn categories(c: Ctx) -> impl IntoView {
         draft.set(String::new());
         busy_task(c, async move {
             let s = session(c)?;
-            data::write(&s, Uuid::new_v4(), KIND_CATEGORY, &Category { name, merged_into: None }).await?;
+            data::write(&s, Uuid::new_v4(), KIND_CATEGORY, &Category { name, merged_into: None, income: new_income.get_untracked() }).await?;
             after_write(c, &s).await;
             Ok(())
         });
     };
     let rows = move || {
-        let all = c.data.with(Data::active_categories);
+        let mut all = c.data.with(Data::active_categories);
+        all.sort_by_key(|x| x.1.income);
         all.iter().cloned().map(|(id, cat)| {
             let name = RwSignal::new(cat.name.clone());
-            let target = RwSignal::new(if id == CAT_OTHER { all.iter().find(|x| x.0 != id).map(|x| x.0).unwrap_or(id) } else { CAT_OTHER });
-            let others: Vec<(Uuid, Category)> = all.iter().filter(|x| x.0 != id).cloned().collect();
+            let income = cat.income;
+            let fallback = if income { CAT_INCOME_OTHER } else { CAT_OTHER };
+            let others: Vec<(Uuid, Category)> = all.iter().filter(|x| x.0 != id && x.1.income == income).cloned().collect();
+            let target = RwSignal::new(if id == fallback { others.first().map(|x| x.0).unwrap_or(id) } else { fallback });
             let rename = move |_| busy_task(c, async move {
                 let s = session(c)?;
-                data::write(&s, id, KIND_CATEGORY, &Category { name: name.get_untracked().trim().to_string(), merged_into: None }).await?;
+                data::write(&s, id, KIND_CATEGORY, &Category { name: name.get_untracked().trim().to_string(), merged_into: None, income }).await?;
                 after_write(c, &s).await;
                 Ok(())
             });
@@ -1263,13 +1431,14 @@ fn categories(c: Ctx) -> impl IntoView {
                 let original = original.clone();
                 busy_task(c, async move {
                     let s = session(c)?;
-                    data::write(&s, id, KIND_CATEGORY, &Category { name: original, merged_into: Some(target.get_untracked()) }).await?;
+                    data::write(&s, id, KIND_CATEGORY, &Category { name: original, merged_into: Some(target.get_untracked()), income }).await?;
                     after_write(c, &s).await;
                     Ok(())
                 });
             };
             view! {
-                <li class="item" data-test="category-item">
+                <li class="item" data-test="category-item" data-income=income.to_string()>
+                    <span class="hint">{if income { "Income" } else { "Expense" }}</span>
                     <input data-test="category-name" prop:value=move || name.get() on:input=move |e| name.set(event_target_value(&e)) />
                     <button data-test="category-save" on:click=rename>"Rename"</button>
                     <label>"Merge into"
@@ -1283,6 +1452,10 @@ fn categories(c: Ctx) -> impl IntoView {
         }).collect_view()
     };
     view! {
+        <div class="segmented">
+            <button data-test="new-category-expense" class:active=move || !new_income.get() on:click=move |_| new_income.set(false)>"Expense"</button>
+            <button data-test="new-category-income" class:active=move || new_income.get() on:click=move |_| new_income.set(true)>"Income"</button>
+        </div>
         <div class="row">
             <input data-test="new-category" placeholder="New category" prop:value=move || draft.get() on:input=move |e| draft.set(event_target_value(&e)) />
             <button class="primary" data-test="add-category" on:click=add>"Add"</button>

@@ -224,6 +224,9 @@ pub struct Category {
     /// that was offline during the merge can still send the previous id.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub merged_into: Option<Uuid>,
+    /// A category of money coming in, like a salary. Income and expenses have separate lists.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub income: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -299,7 +302,15 @@ pub const CAT_CLOTHING: Uuid = builtin(5);
 pub const CAT_ENTERTAINMENT: Uuid = builtin(6);
 pub const CAT_CAFES: Uuid = builtin(7);
 pub const CAT_OTHER: Uuid = builtin(8);
+pub const CAT_SALARY: Uuid = builtin(20);
+pub const CAT_BONUS: Uuid = builtin(21);
+pub const CAT_CASHBACK: Uuid = builtin(22);
+pub const CAT_GIFT: Uuid = builtin(23);
+pub const CAT_REFUND: Uuid = builtin(24);
+pub const CAT_INCOME_OTHER: Uuid = builtin(25);
 pub const ACCOUNT_MAIN: Uuid = builtin(100);
+
+const INCOME_CATEGORIES: [&str; 6] = ["Salary", "Bonus", "Cashback", "Gift", "Refund", "Other income"];
 
 /// Built-in ids are constant, so two devices never create duplicates.
 /// Editing one writes a record with the same id, which takes priority.
@@ -307,7 +318,9 @@ pub fn default_categories() -> Vec<(Uuid, Category)> {
     ["Food", "Household", "Subscriptions", "Transport", "Health", "Clothing", "Entertainment", "Cafes & restaurants", "Other"]
         .iter()
         .enumerate()
-        .map(|(i, n)| (builtin(i as u128), Category { name: (*n).into(), merged_into: None }))
+        .map(|(i, n)| (builtin(i as u128), Category { name: (*n).into(), merged_into: None, income: false }))
+        .chain(INCOME_CATEGORIES.iter().enumerate()
+            .map(|(i, n)| (builtin(20 + i as u128), Category { name: (*n).into(), merged_into: None, income: true })))
         .collect()
 }
 
@@ -437,13 +450,17 @@ mod tests {
     #[test]
     fn builtin_ids_are_stable_and_distinct() {
         let c = default_categories();
-        assert_eq!(c.len(), 9);
+        assert_eq!(c.len(), 15);
         assert_eq!(c[8].0, CAT_OTHER);
         assert_eq!(c[8].1.name, "Other");
+        assert!(!c[8].1.income);
+        assert_eq!(c[9].0, CAT_SALARY);
+        assert!(c[9].1.income);
+        assert_eq!(c[14].0, CAT_INCOME_OTHER);
         let mut ids: Vec<_> = c.iter().map(|x| x.0).collect();
         ids.push(ACCOUNT_MAIN);
         ids.sort();
         ids.dedup();
-        assert_eq!(ids.len(), 10);
+        assert_eq!(ids.len(), 16);
     }
 }

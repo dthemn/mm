@@ -49,6 +49,12 @@ Principles, highest priority first:
   `localStorage.mmKeepUntil` matches, so Lock revokes it at once. iOS drops background pages, so memory alone is not enough.
   Test devices start with 1 min.
 - Only `main` scrolls; the page itself does not, so the tab bar (icons with small captions) stays at the bottom on iOS.
+- Income has its own built-in categories (`Category.income`): Salary, Bonus, Cashback, Gift, Refund, Other income
+  (ids `builtin(20..25)`). The form lists the ones matching the kind; statement rows get one from `income_category`.
+- A receipt keeps one operation; `analytics::groups` sorts its lines by category with exact sums. Home shows the
+  groups under a mixed receipt, the detail lists lines under their category.
+- Stats: Income/Expenses tabs, a ring by category (8 validated hues per theme, gray for Other, color fixed per
+  category), and a tapped category leaves every number on that screen (`Filter.exclude`).
 - Categories are English: Food, Household, Subscriptions, Transport, Health, Clothing, Entertainment,
   Cafes & restaurants, Other. Built-ins have fixed ids. Merging sets `merged_into` instead of rewriting records.
 
@@ -89,10 +95,10 @@ to home screen and OCR speed on a mid-range Android are still unverified. No VPS
 
 ```sh
 docker compose -f compose.dev.yml up -d        # throwaway test DB on 127.0.0.1:55432
-cargo test -p mm-core                          # 149 tests
+cargo test -p mm-core                          # 154 tests
 cargo test -p mm-server                        # 21 tests, needs the test DB
 web/build.sh && cargo build -p mm-server
-node e2e/run.mjs > /tmp/e2e.log 2>&1           # 52 tests; write to a file, never pipe into head or tail
+node e2e/run.mjs > /tmp/e2e.log 2>&1           # 55 tests; write to a file, never pipe into head or tail
 LIMIT=90000 node e2e/scan.mjs                  # real receipts in samples/receipts, prints scores only
 SHOW=1 ...                                     # also prints recognized lines (sets localStorage.mmDebug)
 docker compose up --build -d                   # whole app on http://localhost:8080 (use localhost, not 127.0.0.1)

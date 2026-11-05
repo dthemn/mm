@@ -69,6 +69,25 @@ fn suggest(merchant: &str, item: &str) -> Uuid {
 }
 
 /// `rules` are personal corrections. A rule for this shop wins over a rule for any shop.
+/// The category of money coming in, from the words of a statement line.
+pub fn income_category(text: &str) -> Uuid {
+    let t = fold(text);
+    let has = |words: &[&str]| words.iter().any(|w| t.contains(w));
+    if has(&["wynagrodz", "pensj", "salary", "payroll"]) {
+        CAT_SALARY
+    } else if has(&["premia", "bonus", "nagroda"]) {
+        CAT_BONUS
+    } else if has(&["cashback", "zwrot gotowki"]) {
+        CAT_CASHBACK
+    } else if has(&["zwrot", "refund", "reklamac"]) {
+        CAT_REFUND
+    } else if has(&["prezent", "gift", "urodzin"]) {
+        CAT_GIFT
+    } else {
+        CAT_INCOME_OTHER
+    }
+}
+
 pub fn categorize(rules: &[CategoryRule], merchant_id: Option<Uuid>, merchant: &str, item: &str) -> Uuid {
     let pattern = fold(item);
     let find = |m: Option<Uuid>| rules.iter().find(|r| r.merchant_id == m && r.pattern == pattern).map(|r| r.category_id);
@@ -97,6 +116,23 @@ pub fn tidy_name(raw: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_mixed_receipt_gets_a_category_per_line() {
+        assert_eq!(categorize(&[], None, "Biedronka", "LodyMarlAlmond120ml"), CAT_FOOD);
+        assert_eq!(categorize(&[], None, "Biedronka", "LodyPatMarlKokos90ml"), CAT_FOOD);
+        assert_eq!(categorize(&[], None, "Biedronka", "Ludwik900g"), CAT_HOUSEHOLD);
+    }
+
+    #[test]
+    fn income_lines_get_income_categories() {
+        assert_eq!(income_category("WYNAGRODZENIE ZA 10/2026"), CAT_SALARY);
+        assert_eq!(income_category("Premia kwartalna"), CAT_BONUS);
+        assert_eq!(income_category("Zwrot gotówki za zakupy"), CAT_CASHBACK);
+        assert_eq!(income_category("Zwrot za zamówienie 123"), CAT_REFUND);
+        assert_eq!(income_category("Na urodziny"), CAT_GIFT);
+        assert_eq!(income_category("Przelew od Jana"), CAT_INCOME_OTHER);
+    }
 
     #[test]
     fn folding_ignores_case_diacritics_and_punctuation() {

@@ -573,6 +573,26 @@ await test("categories count per item, and a category opens its items", async ()
   eq((await fin.page.$$(q("line-row"))).length, 1, "only the matching item");
 });
 
+await test("a receipt with food and household lines shows each category, its lines and sum", async () => {
+  await fin.ops();
+  const row = await fin.page.$$eval(q("tx-row"), (a) => {
+    const li = a.find((e) => e.textContent.includes("Rossmann")).closest("li");
+    return [...li.querySelectorAll('[data-test="split-group"]')].map((g) => g.textContent.replaceAll(" ", " "));
+  });
+  eq(row.length, 2, `two categories under the row: ${row}`);
+  if (process.env.SHOT_SPLIT) await fin.page.screenshot({ path: process.env.SHOT_SPLIT });
+  ok(row[0].includes("Household") && row[0].includes("20,00") && row[0].includes("Szampon"), `largest first: ${row[0]}`);
+  ok(row[1].includes("Food") && row[1].includes("3,19") && row[1].includes("Chleb"), `then food: ${row[1]}`);
+  await fin.page.$$eval(q("tx-row"), (a) => a.find((e) => e.textContent.includes("Rossmann")).click());
+  await fin.page.waitForSelector(q("detail-group"));
+  const groups = await fin.page.$$eval(q("detail-group"), (a) => a.map((e) => e.textContent.replaceAll(" ", " ")));
+  eq(groups.length, 2, `groups: ${groups}`);
+  const order = await fin.page.$$eval('[data-test="detail-items"] > li', (a) => a.map((e) => e.dataset.test === "detail-group" ? "#" + e.textContent.split(/\d/)[0] : e.querySelector(".name").textContent));
+  eq(order, ["#Household", "Szampon", "#Food", "Chleb"], "lines sit under their category");
+  if (process.env.SHOT_SPLIT) await fin.page.screenshot({ path: process.env.SHOT_SPLIT.replace(".png", "-detail.png") });
+  await fin.click("detail-back");
+});
+
 await test("home lists operations by day, newest first, and a tap shows the receipt lines", async () => {
   await fin.ops();
   await fin.page.waitForSelector(q("day"));
@@ -594,8 +614,9 @@ await test("home lists operations by day, newest first, and a tap shows the rece
   await fin.waitText("detail-title", "Rossmann");
   const lines = await fin.page.$$eval(q("detail-item"), (a) => a.map((e) => e.textContent.replaceAll("\u00a0", " ")));
   eq(lines.length, 2, "both receipt lines");
-  ok(lines[0].includes("Chleb") && lines[0].includes("0,532 × 5,99 zł") && lines[0].includes("3,19 zł"), `bread: ${lines[0]}`);
-  ok(lines[1].includes("Szampon") && lines[1].includes("Discount −4,00 zł") && lines[1].includes("20,00 zł"), `shampoo: ${lines[1]}`);
+  // Sorted by category, the larger one first: household, then food.
+  ok(lines[0].includes("Szampon") && lines[0].includes("Discount −4,00 zł") && lines[0].includes("20,00 zł"), `shampoo: ${lines[0]}`);
+  ok(lines[1].includes("Chleb") && lines[1].includes("0,532 × 5,99 zł") && lines[1].includes("3,19 zł"), `bread: ${lines[1]}`);
   ok((await fin.text("detail-amount")).startsWith("−"), "an expense is shown with a minus");
   await fin.click("tx-edit");
   await fin.page.waitForSelector(q("f-save"));
@@ -873,7 +894,8 @@ await test("a receipt that does not add up cannot be saved silently", async () =
 
 await test("the photo never leaves the device", async () => {
   const sent = fin.sent.join("\n");
-  ok(!sent.includes("/9j/") && !sent.includes("_9j_"), "no JPEG data in any request");
+  // Base64 of a JPEG starts with "/9j/4". Four characters alone turn up in ciphertext by chance.
+  ok(!sent.includes("/9j/4") && !sent.includes("_9j_4"), "no JPEG data in any request");
   ok(!sent.includes("Szampon") && !sent.includes("Sklep Testowy"), "no receipt text in any request");
   const foreign = fin.urls.filter((u) => !u.startsWith(ORIGIN) && !u.startsWith("data:") && !u.startsWith("blob:"));
   eq(foreign, [], "no request leaves the app's own server");
@@ -1033,6 +1055,57 @@ await test("the form rows fit the screen: label left, value right", async () => 
   ok(rows.every((r) => r.right <= r.edge + 1), `no field runs past the card: ${JSON.stringify(rows)}`);
   if (process.env.SHOT_FORM) await fin.page.screenshot({ path: process.env.SHOT_FORM });
   await fin.click("form-back");
+});
+
+await test("income has its own categories: salary, bonus, cashback, gift", async () => {
+  await fin.click("nav-add");
+  const options = () => fin.page.$eval(q("f-category"), (e) => [...e.options].map((o) => o.textContent));
+  ok((await options()).includes("Household"), "expense categories by default");
+  await fin.click("kind-income");
+  const inc = await options();
+  for (const n of ["Salary", "Bonus", "Cashback", "Gift", "Other income"]) ok(inc.includes(n), `${n} in ${inc}`);
+  ok(!inc.includes("Household"), "no shop categories for income");
+  eq(await fin.page.$eval(q("f-category"), (e) => e.options[e.selectedIndex].textContent), "Other income", "switching the kind picks an income category");
+  await fin.click("kind-expense");
+  ok((await options()).includes("Household"), "back to expense categories");
+  await fin.click("form-back");
+});
+
+await test("Stats splits the month in a ring by category, and a tapped category leaves every number", async () => {
+  await fin.click("nav-stats");
+  await gotoMonth(fin, "10.2026");
+  await fin.click("stats-expense");
+  await fin.page.waitForSelector(q("pie-slice"));
+  const toNum = (t) => Number(t.replace(/[^\d,]/g, "").replace(",", "."));
+  const total = toNum(await fin.text("donut-total"));
+  eq(toNum(await fin.text("stats-expense")), total, "the ring total is the month's spending");
+  const rows = await fin.page.$$eval(q("pie-row"), (a) => a.map((e) => ({ cat: e.dataset.cat, text: e.textContent.replaceAll(" ", " ") })));
+  ok(rows.length >= 2, `categories: ${rows.map((r) => r.text)}`);
+  ok(rows.every((r) => /\d+%/.test(r.text)), "each row has its share");
+  const first = toNum(rows[0].text.replace(/^.*?%/, ""));
+  const left = +(total - first).toFixed(2);
+  const ringIs = (want) => fin.page.waitForFunction((s, w) => Math.abs(Number(document.querySelector(s).textContent.replace(/[^\d,]/g, "").replace(",", ".")) - w) < 0.001,
+    {}, q("donut-total"), want);
+  await fin.page.$$eval(q("pie-row"), (a, c) => a.find((e) => e.dataset.cat === c).click(), rows[0].cat);
+  await ringIs(left);
+  eq(toNum(await fin.text("stats-expense")), left, "the spending tab follows");
+  ok(await fin.page.$eval(`${q("pie-row")}[data-cat="${rows[0].cat}"]`, (e) => e.classList.contains("off")), "the row stays, marked off");
+  eq((await fin.page.$$(q("pie-slice"))).length, rows.length - 1, "its slice is gone");
+  await fin.click("pie-reset");
+  await ringIs(total);
+  // The slice colour follows the category, not its rank.
+  const colors = await fin.page.$$eval(q("pie-slice"), (a) => a.map((e) => getComputedStyle(e).stroke));
+  eq(new Set(colors).size, colors.length, `each slice has its own colour: ${colors}`);
+  if (process.env.SHOT_PIE) {
+    console.log("     trend", await fin.page.$eval(q("trend"), (e) => JSON.stringify(e.getBoundingClientRect())), await fin.page.$eval(q("donut"), (e) => JSON.stringify(e.getBoundingClientRect())));
+    await fin.page.$eval("main", (m) => { m.scrollTop = 0; });
+    await fin.page.screenshot({ path: process.env.SHOT_PIE });
+    await fin.page.$eval(q("trend"), (e) => e.scrollIntoView());
+    await fin.page.screenshot({ path: process.env.SHOT_PIE.replace(".png", "2.png") });
+  }
+  await fin.click("stats-income");
+  await fin.page.waitForSelector(`${q("stats-income")}.active`);
+  await fin.click("stats-expense");
 });
 
 await test("the theme is dark by default, and light is saved in the account", async () => {

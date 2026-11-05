@@ -34,6 +34,13 @@ fn sorted<T: Clone>(m: &HashMap<Uuid, T>, name: impl Fn(&T) -> String) -> Vec<(U
 
 impl Data {
     /// Categories a user can pick: merged ones are hidden.
+    /// Categories for money going out, or for money coming in.
+    pub fn categories_of(&self, income: bool) -> Vec<(Uuid, Category)> {
+        let mut v = self.active_categories();
+        v.retain(|c| c.1.income == income);
+        v
+    }
+
     pub fn active_categories(&self) -> Vec<(Uuid, Category)> {
         let mut v = sorted(&self.categories, |c| c.name.clone());
         v.retain(|c| c.1.merged_into.is_none());

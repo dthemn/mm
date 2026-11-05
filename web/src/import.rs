@@ -9,7 +9,7 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 use mm_core::analytics::Tx;
 use mm_core::api::RatesResp;
-use mm_core::categorize::categorize;
+use mm_core::categorize::{categorize, income_category};
 use mm_core::crypto::named_id;
 use mm_core::date::Date;
 use mm_core::dedup::{self, Confidence};
@@ -183,7 +183,7 @@ pub fn import(c: Ctx) -> impl IntoView {
                 kind: if r.amount < 0 { TxKind::Expense } else { TxKind::Income },
                 date: r.date, time: None, merchant_id: None, nip: None, amount, currency: r.currency.clone(), amount_pln,
                 payment: Payment::Card, account_id: acc,
-                category_id: categorize(&rules, None, &r.counterparty, &r.description),
+                category_id: if r.amount < 0 { categorize(&rules, None, &r.counterparty, &r.description) } else { income_category(&text) },
                 source: Source::Statement, review, note: text, items: vec![], mismatch_confirmed: false,
                 duplicate_of: None, unique_confirmed: false,
             };

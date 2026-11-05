@@ -18,6 +18,8 @@ pub struct Filter {
     pub to: Option<Date>,
     pub account: Option<Uuid>,
     pub category: Option<Uuid>,
+    /// Categories left out, as when the user taps one off in the chart.
+    pub exclude: Vec<Uuid>,
 }
 
 /// Resolves merged categories. A cycle from conflicting merges stops at the start.
@@ -61,6 +63,33 @@ pub fn parts(t: &Transaction, cats: &HashMap<Uuid, Category>) -> Vec<Part> {
         .collect()
 }
 
+/// The part of one operation that went to one category, with the receipt lines in it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Group {
+    pub category: Uuid,
+    pub amount_pln: i64,
+    /// Indexes into `items`. Empty for the share of the total no line covers.
+    pub items: Vec<usize>,
+}
+
+/// A receipt sorted by category, largest first. The groups add up to exactly `amount_pln`.
+pub fn groups(t: &Transaction, cats: &HashMap<Uuid, Category>) -> Vec<Group> {
+    let mut out: Vec<Group> = vec![];
+    for p in parts(t, cats) {
+        let g = match out.iter_mut().position(|g| g.category == p.category) {
+            Some(i) => &mut out[i],
+            None => {
+                out.push(Group { category: p.category, amount_pln: 0, items: vec![] });
+                out.last_mut().expect("just pushed")
+            }
+        };
+        g.amount_pln += p.amount_pln;
+        g.items.extend(p.item);
+    }
+    out.sort_by_key(|g| (std::cmp::Reverse(g.amount_pln), g.category));
+    out
+}
+
 /// Whether an operation counts in totals. Transfers and duplicates of receipts do not.
 pub fn counts(t: &Transaction) -> bool {
     t.kind != TxKind::Transfer && t.duplicate_of.is_none()
@@ -73,7 +102,7 @@ fn in_scope(t: &Transaction, f: &Filter) -> bool {
 fn filtered_parts(t: &Transaction, f: &Filter, cats: &HashMap<Uuid, Category>) -> Vec<Part> {
     let want = f.category.map(|c| canonical(cats, c));
     let mut p = parts(t, cats);
-    p.retain(|x| want.is_none_or(|c| x.category == c));
+    p.retain(|x| want.is_none_or(|c| x.category == c) && !f.exclude.iter().any(|e| canonical(cats, *e) == x.category));
     p
 }
 
@@ -95,8 +124,10 @@ pub struct Dashboard {
     pub income: i64,
     pub expense: i64,
     pub balance: i64,
-    /// Largest first. Merged categories are already resolved.
+    /// Spending by category, largest first. Merged categories are already resolved.
     pub by_category: Vec<(Uuid, i64)>,
+    /// Income by category, largest first.
+    pub income_by_category: Vec<(Uuid, i64)>,
     /// Oldest first, always `TREND_MONTHS` entries ending at the chosen month.
     pub trend: Vec<MonthTotal>,
     pub top_merchants: Vec<(Option<Uuid>, i64)>,
@@ -108,6 +139,7 @@ pub struct Dashboard {
 pub fn dashboard(txs: &[Tx], cats: &HashMap<Uuid, Category>, f: &Filter, month: Month) -> Dashboard {
     let mut d = Dashboard::default();
     let mut by_cat: BTreeMap<Uuid, i64> = BTreeMap::new();
+    let mut in_cat: BTreeMap<Uuid, i64> = BTreeMap::new();
     let mut by_merchant: HashMap<Option<Uuid>, i64> = HashMap::new();
     let open = Filter { from: None, to: None, ..f.clone() };
     let months: Vec<Month> = (0..TREND_MONTHS).rev().map(|i| month.offset(-i)).collect();
@@ -132,7 +164,10 @@ pub fn dashboard(txs: &[Tx], cats: &HashMap<Uuid, Category>, f: &Filter, month: 
         for p in filtered_parts(t, f, cats) {
             match t.kind {
                 TxKind::Transfer => {}
-                TxKind::Income => d.income += p.amount_pln,
+                TxKind::Income => {
+                    d.income += p.amount_pln;
+                    *in_cat.entry(p.category).or_default() += p.amount_pln;
+                }
                 TxKind::Expense => {
                     d.expense += p.amount_pln;
                     *by_cat.entry(p.category).or_default() += p.amount_pln;
@@ -144,6 +179,8 @@ pub fn dashboard(txs: &[Tx], cats: &HashMap<Uuid, Category>, f: &Filter, month: 
     d.balance = d.income - d.expense;
     d.by_category = by_cat.into_iter().collect();
     d.by_category.sort_by_key(|c| (std::cmp::Reverse(c.1), c.0));
+    d.income_by_category = in_cat.into_iter().collect();
+    d.income_by_category.sort_by_key(|c| (std::cmp::Reverse(c.1), c.0));
     d.top_merchants = by_merchant.into_iter().filter(|(m, _)| m.is_some()).collect();
     d.top_merchants.sort_by_key(|m| (std::cmp::Reverse(m.1), m.0));
     d.top_merchants.truncate(TOP_MERCHANTS);
@@ -268,8 +305,8 @@ mod tests {
     #[test]
     fn merged_categories_resolve_even_for_late_records() {
         let mut cats = HashMap::new();
-        cats.insert(A, Category { name: "a".into(), merged_into: Some(B) });
-        cats.insert(B, Category { name: "b".into(), merged_into: Some(C) });
+        cats.insert(A, Category { name: "a".into(), merged_into: Some(B), income: false });
+        cats.insert(B, Category { name: "b".into(), merged_into: Some(C), income: false });
         let t = vec![tx(TxKind::Expense, d(10, 1), 100, A), tx(TxKind::Expense, d(10, 2), 50, C)];
         let r = dashboard(&t, &cats, &of(month(2026, 10)), month(2026, 10));
         assert_eq!(r.by_category, vec![(C, 150)]);
@@ -278,8 +315,8 @@ mod tests {
     #[test]
     fn a_merge_cycle_terminates() {
         let mut cats = HashMap::new();
-        cats.insert(A, Category { name: "a".into(), merged_into: Some(B) });
-        cats.insert(B, Category { name: "b".into(), merged_into: Some(A) });
+        cats.insert(A, Category { name: "a".into(), merged_into: Some(B), income: false });
+        cats.insert(B, Category { name: "b".into(), merged_into: Some(A), income: false });
         let _ = canonical(&cats, A);
         let _ = canonical(&cats, B);
     }
@@ -321,6 +358,45 @@ mod tests {
         assert_eq!(filter_txs(&txs, &f, &none()).len(), 1);
         let miss = Filter { category: Some(C), ..of(month(2026, 10)) };
         assert!(filter_txs(&txs, &miss, &none()).is_empty());
+    }
+
+    #[test]
+    fn excluded_categories_leave_totals_trend_and_receipt_shares() {
+        let mut t = tx(TxKind::Expense, d(10, 5), 1000, C);
+        t.1.items = vec![item("a", 700, A), item("b", 300, B)];
+        let txs = [t, tx(TxKind::Expense, d(10, 6), 50, B), tx(TxKind::Income, d(10, 7), 900, C)];
+        let f = Filter { exclude: vec![B], ..of(month(2026, 10)) };
+        let r = dashboard(&txs, &none(), &f, month(2026, 10));
+        assert_eq!(r.expense, 700);
+        assert_eq!(r.by_category, vec![(A, 700)]);
+        assert_eq!(r.trend.last().unwrap().expense, 700);
+        assert_eq!(r.income, 900);
+        assert_eq!(filter_txs(&txs, &f, &none()).len(), 2, "the line only in B is gone");
+    }
+
+    #[test]
+    fn income_is_split_by_its_categories() {
+        let txs = [tx(TxKind::Income, d(10, 1), 5000, A), tx(TxKind::Income, d(10, 2), 700, B), tx(TxKind::Income, d(10, 3), 300, B)];
+        let r = dashboard(&txs, &none(), &of(month(2026, 10)), month(2026, 10));
+        assert_eq!(r.income_by_category, vec![(A, 5000), (B, 1000)]);
+        assert!(r.by_category.is_empty());
+    }
+
+    #[test]
+    fn a_receipt_is_grouped_by_category_and_the_groups_add_up() {
+        let mut t = tx(TxKind::Expense, d(10, 5), 2176, C);
+        t.1.items = vec![item("lody", 349, A), item("lody", 349, A), item("lody kokos", 599, A), item("ludwik", 879, B)];
+        let g = groups(&t.1, &none());
+        assert_eq!(g, vec![
+            Group { category: A, amount_pln: 1297, items: vec![0, 1, 2] },
+            Group { category: B, amount_pln: 879, items: vec![3] },
+        ]);
+        // A total above the lines leaves a share in the operation's own category.
+        t.1.amount = 2276;
+        t.1.amount_pln = 2276;
+        let g = groups(&t.1, &none());
+        assert_eq!(g.iter().map(|x| x.amount_pln).sum::<i64>(), 2276);
+        assert_eq!(g.last().unwrap(), &Group { category: C, amount_pln: 100, items: vec![] });
     }
 
     #[test]
