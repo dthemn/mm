@@ -563,7 +563,9 @@ await test("categories count per item, and a category opens its items", async ()
   await fin.click("nav-dashboard");
   await fin.waitText("dash-expense", "44,35 zł");
   await fin.click("tab-summary");
-  const rows = await fin.page.$$eval(q("cat-row"), (a) => a.map((e) => e.textContent.replaceAll("\u00a0", " ")));
+  await fin.page.waitForSelector(`${q("donut")} ${q("pie-slice")}`);
+  if (process.env.SHOT_SUMMARY) { await fin.page.$eval(".ring-card", (e) => e.scrollIntoView()); await fin.page.screenshot({ path: process.env.SHOT_SUMMARY }); }
+  const rows = await fin.page.$$eval(q("cat-row"), (a) => a.map((e) => e.textContent.replaceAll(" ", " ")));
   ok(rows.some((r) => r.includes("Household") && r.includes("20,00 zł")), `Household: ${rows}`);
   ok(rows.some((r) => r.includes("Food") && r.includes("3,19 zł")), `Food: ${rows}`);
   await fin.page.evaluate((sel) => {
@@ -759,6 +761,11 @@ await test("merging a category moves its amounts", async () => {
   await fin.click("nav-settings");
   await fin.click("manage-categories");
   await fin.page.waitForSelector(q("category-item"));
+  const cards = await fin.page.$$eval(".slipcard-head", (a) => a.map((e) => e.textContent));
+  ok(cards.length === 2 && cards[0].startsWith("Expenses") && cards[1].startsWith("Income"), `two cards: ${cards}`);
+  const food = await fin.page.$$eval(`${q("category-item")} summary`, (a) => a.map((e) => e.textContent.replaceAll(" ", " ")).find((t) => t.startsWith("Food")));
+  ok(/operations? · \d/.test(food), `usage on the row: ${food}`);
+  if (process.env.SHOT_MANAGE) await fin.page.screenshot({ path: process.env.SHOT_MANAGE });
   const at = await fin.page.$$eval(q("category-name"), (a) => a.findIndex((e) => e.value === "Food"));
   await fin.pick("merge-target", "Household", at);
   await (await fin.page.$$(q("merge")))[at].evaluate((e) => e.click());
@@ -774,7 +781,11 @@ await test("renaming a merchant updates its operations and top list", async () =
   await fin.click("nav-settings");
   await fin.click("manage-merchants");
   await fin.page.waitForSelector(q("merchant-item"));
+  // A merchant is a row with its letter, NIP and spending; a tap opens it for editing.
+  const meta = await fin.page.$$eval(`${q("merchant-item")} summary`, (a) => a.map((e) => e.textContent.replaceAll(" ", " ")));
+  ok(meta.some((m) => m.startsWith("L") && m.includes("Lidl") && /\d operations? · /.test(m)), `merchant rows: ${meta}`);
   const at = await fin.page.$$eval(q("merchant-name"), (a) => a.findIndex((e) => e.value === "Lidl"));
+  await (await fin.page.$$(`${q("merchant-item")} summary`))[at].click();
   const input = (await fin.page.$$(q("merchant-name")))[at];
   await input.evaluate((e) => e.scrollIntoView({ block: "center" }));
   await input.click({ clickCount: 3 });
@@ -1152,6 +1163,17 @@ await test("the theme is dark by default, and light is saved in the account", as
   await fin.page.waitForSelector(q("dash-balance"));
   await fin.page.waitForFunction(() => document.documentElement.dataset.theme === "light", { timeout: 15000 });
   await fin.page.screenshot({ path: process.env.SHOT_LIGHT ?? "/tmp/mm-light.png" });
+  if (process.env.SHOT_LIGHT_MORE) {
+    await fin.click("tab-summary");
+    await fin.page.$eval(".ring-card", (e) => e.scrollIntoView());
+    await fin.page.screenshot({ path: process.env.SHOT_LIGHT_MORE + "-summary.png" });
+    await fin.click("nav-settings");
+    await fin.click("manage-merchants");
+    await (await fin.page.$(`${q("merchant-item")} summary`)).click();
+    await fin.page.screenshot({ path: process.env.SHOT_LIGHT_MORE + "-merchants.png" });
+    await fin.click("nav-dashboard");
+    await fin.click("tab-daily");
+  }
   await fin.click("nav-settings");
   await fin.click("theme-dark");
   await fin.page.waitForFunction(() => document.documentElement.dataset.theme === "dark");

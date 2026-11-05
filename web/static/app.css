@@ -264,3 +264,41 @@ h2.rule-head { font-size: 13px; text-transform: uppercase; letter-spacing: 1px; 
 .found { display: flex; flex-direction: column; gap: 2px; padding: 4px 0 8px; border-bottom: 1px dashed var(--rule); }
 .found-sum { font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .found-sum.neg { color: var(--neg); } .found-sum.income { color: var(--income); }
+
+/* Lists of things to manage: a receipt card, a row per entry with a badge, opening in place to edit. */
+:root { --card: #1c1c1a; } :root[data-theme="light"] { --card: #fbfaf6; }
+.slipcard { --z: 6px; background: var(--card); border: 1px solid var(--line); border-bottom: 0; border-radius: 6px 6px 0 0;
+  padding: 4px 14px calc(8px + var(--z));
+  -webkit-mask: conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg) 50% / calc(2 * var(--z)) 100%;
+  mask: conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg) 50% / calc(2 * var(--z)) 100%; }
+.slipcard-head { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px dashed var(--rule);
+  color: var(--muted); font-size: 13px; letter-spacing: 1.5px; text-transform: uppercase; }
+.ledger { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.ledger > li { border-bottom: 1px dashed var(--line); } .ledger > li:last-child { border-bottom: 0; }
+.entry-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; min-height: 56px; cursor: pointer; list-style: none; }
+.entry-row::-webkit-details-marker { display: none; }
+.entry-row .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.entry-row .hint { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.badge { width: 38px; height: 38px; flex: none; border-radius: 10px; display: flex; align-items: center; justify-content: center;
+  border: 1px dashed var(--rule); color: var(--fg); }
+.badge .icon { width: 20px; height: 20px; }
+.badge.tint { border: 0; color: var(--c); background: color-mix(in srgb, var(--c) 16%, transparent); }
+.badge.letter { font-weight: 800; font-size: 17px; background: var(--fg); color: var(--bg); border: 0; }
+.chev { flex: none; color: var(--muted); display: flex; transition: transform .15s; }
+.chev .icon { width: 18px; height: 18px; }
+details[open] > summary .chev { transform: rotate(90deg); }
+.edit { display: flex; flex-direction: column; gap: 8px; padding: 0 0 12px 50px; }
+.edit input, .edit select, .edit button { min-height: 38px; padding: 6px 10px; border-radius: 8px; }
+.edit .row input { flex: 1; min-width: 0; }
+.edit .merge { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
+.edit .merge .hint { flex: none; } .edit .merge select { flex: 1; min-width: 0; }
+.edit label.f { flex-direction: row; align-items: center; gap: 10px; } .edit label.f > span { width: 5ch; flex: none; color: var(--muted); font-size: 14px; }
+.edit label.f input { flex: 1; min-width: 0; width: auto; }
+.quiet-danger { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 40%, transparent); }
+.flow { display: flex; flex-direction: column; align-items: flex-end; font-size: 14px; }
+
+/* Home summary: the ring and its categories on one card. */
+.ring-card { display: flex; flex-direction: column; gap: 4px; }
+.ring-card .donut { width: min(60vw, 220px); }
+.pie-row .chev { margin-left: -4px; }
+.pie-row .num.income { color: var(--income); }

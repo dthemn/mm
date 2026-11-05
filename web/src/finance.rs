@@ -494,60 +494,82 @@ fn monthly(c: Ctx, d: &Data, f: &Filter, year: i32) -> AnyView {
 }
 
 /// Where the money of the period went, by category and by account.
-fn summary(c: Ctx, d: &Data, f: &Filter, r: &Dashboard) -> AnyView {
-    let max_cat = r.by_category.first().map(|x| x.1).unwrap_or(0);
-    let spent = r.expense.max(1);
-    let cats: Vec<_> = r.by_category.iter().map(|(id, v)| {
-        let id = *id;
-        let share = (*v as i128 * 100 / spent as i128) as i64;
+/// A ring and its list of categories, for the Home summary. A tap opens the category's operations.
+fn category_ring(c: Ctx, d: &Data, rows: &[(Uuid, i64)], total: i64, income: bool, test: &'static str) -> impl IntoView {
+    let open = move |id: Uuid| c.screen.set(Screen::Category(id));
+    let slices: Vec<(Uuid, i64, usize, String)> = rows.iter().filter(|x| x.1 > 0)
+        .map(|(id, v)| (*id, *v, color_slot(d, income, *id), d.category_name(*id))).collect();
+    let list = rows.iter().map(|(id, v)| {
+        let (id, v) = (*id, *v);
+        let slot = color_slot(d, income, id);
         view! {
             <li>
-                <button class="barrow" data-test="cat-row" on:click=move |_| c.screen.set(Screen::Category(id))>
-                    <span class="line"><span>{d.category_name(id)}<span class="hint">{format!("  {share}%")}</span></span><span class="num">{pln(*v)}</span></span>
-                    {bar(*v, max_cat)}
+                <button class="pie-row" data-test=test on:click=move |_| open(id)>
+                    <span class=format!("swatch s{slot}")></span>
+                    <span class="pct num">{format!("{}%", percent(v, total))}</span>
+                    <span class="grow name">{d.category_name(id)}</span>
+                    <span class="num" class:income=income>{if income { format!("+{}", pln(v)) } else { pln(v) }}</span>
+                    <span class="chev">{icon(Icon::Chevron)}</span>
                 </button>
             </li>
         }
-    }).collect();
+    }).collect_view();
+    view! {
+        <div class="ring-card" class:income=income>
+            {donut(&slices, total, if income { "Income" } else { "Spent" }, open)}
+            <ul class="pie-list">{list}</ul>
+        </div>
+    }
+}
+
+fn summary(c: Ctx, d: &Data, f: &Filter, r: &Dashboard) -> AnyView {
     let rows = analytics::filter_txs(&d.txs, f, &d.categories);
-    let mut income: Vec<(Uuid, i64)> = Vec::new();
     let mut accounts: Vec<(Uuid, i64, i64)> = Vec::new();
     for (_, t) in rows.iter().filter(|(_, t)| t.duplicate_of.is_none() && t.kind != TxKind::Transfer) {
-        if t.kind == TxKind::Income {
-            let cat = analytics::canonical(&d.categories, t.category_id);
-            match income.iter_mut().find(|x| x.0 == cat) {
-                Some(x) => x.1 += t.amount_pln,
-                None => income.push((cat, t.amount_pln)),
-            }
-        }
         let (i, e) = if t.kind == TxKind::Income { (t.amount_pln, 0) } else { (0, t.amount_pln) };
         match accounts.iter_mut().find(|x| x.0 == t.account_id) {
             Some(x) => { x.1 += i; x.2 += e; }
             None => accounts.push((t.account_id, i, e)),
         }
     }
-    income.sort_by_key(|x| -x.1);
-    let income_rows = income.iter().map(|(id, v)| view! {
-        <li class="line" data-test="income-row"><span>{d.category_name(*id)}</span><span class="num income">{format!("+{}", pln(*v))}</span></li>
-    }).collect_view();
     let account_rows = accounts.iter().map(|(id, i, e)| {
         let name = d.accounts.get(id).map(|a| a.name.clone()).unwrap_or_default();
         view! {
-            <li class="line" data-test="account-row"><span>{name}</span>
-                <span class="num"><span class="income">{format!("+{}", pln(*i))}</span>" "<span class="neg">{format!("−{}", pln(*e))}</span></span></li>
+            <li class="entry-row" data-test="account-row">
+                <span class="badge">{icon(Icon::Wallet)}</span>
+                <span class="grow"><span class="name">{name}</span>
+                    <span class="hint">{format!("balance {}", signed_pln(*i - *e))}</span></span>
+                <span class="flow num"><span class="income">{format!("+{}", pln(*i))}</span><span class="neg">{format!("−{}", pln(*e))}</span></span>
+            </li>
         }
     }).collect_view();
-    let has_income = !income.is_empty();
     view! {
         <h2>"Expenses by category"</h2>
-        {if cats.is_empty() {
+        {if r.by_category.is_empty() {
             view! { <p class="hint">"No expenses in this period."</p> }.into_any()
         } else {
-            view! { <ul class="bars">{cats}</ul> }.into_any()
+            category_ring(c, d, &r.by_category, r.expense, false, "cat-row").into_any()
         }}
-        {has_income.then(|| view! { <h2>"Income"</h2><ul class="plain">{income_rows}</ul> })}
-        {(!accounts.is_empty()).then(|| view! { <h2>"By account"</h2><ul class="plain">{account_rows}</ul> })}
+        {(!r.income_by_category.is_empty()).then(|| view! {
+            <h2>"Income by category"</h2>
+            {category_ring(c, d, &r.income_by_category, r.income, true, "income-row")}
+        })}
+        {(!accounts.is_empty()).then(|| view! { <h2>"By account"</h2><ul class="ledger">{account_rows}</ul> })}
     }.into_any()
+}
+
+/// "3 operations · 120,00 zł", or that nothing uses it yet.
+fn usage_line(n: usize, sum: i64) -> String {
+    match n {
+        0 => "not used yet".into(),
+        1 => format!("1 operation · {}", pln(sum)),
+        n => format!("{n} operations · {}", pln(sum)),
+    }
+}
+
+/// The first letter of a name, for a merchant's badge.
+fn initial(name: &str) -> String {
+    name.chars().find(|c| c.is_alphanumeric()).map(|c| c.to_uppercase().collect()).unwrap_or_else(|| "?".into())
 }
 
 /// Home: totals, then Daily, Monthly or Summary.
@@ -1479,14 +1501,25 @@ fn categories(c: Ctx) -> impl IntoView {
             Ok(())
         });
     };
-    let rows = move || {
-        let mut all = c.data.with(Data::active_categories);
-        all.sort_by_key(|x| x.1.income);
-        all.iter().cloned().map(|(id, cat)| {
+    let card = move |income_side: bool| {
+        let d = c.data.get();
+        let mut used: std::collections::HashMap<Uuid, (usize, i64)> = Default::default();
+        for (_, t) in d.txs.iter().filter(|(_, t)| t.duplicate_of.is_none() && t.kind != TxKind::Transfer) {
+            for g in analytics::groups(t, &d.categories) {
+                let u = used.entry(g.category).or_default();
+                u.0 += 1;
+                u.1 += g.amount_pln;
+            }
+        }
+        let all = d.active_categories();
+        let side: Vec<(Uuid, Category)> = all.iter().filter(|x| x.1.income == income_side).cloned().collect();
+        let count = side.len();
+        let rows = side.into_iter().map(|(id, cat)| {
             let name = RwSignal::new(cat.name.clone());
             let income = cat.income;
             let fallback = if income { CAT_INCOME_OTHER } else { CAT_OTHER };
             let others: Vec<(Uuid, Category)> = all.iter().filter(|x| x.0 != id && x.1.income == income).cloned().collect();
+            let cat_name = cat.name.clone();
             let target = RwSignal::new(if id == fallback { others.first().map(|x| x.0).unwrap_or(id) } else { fallback });
             let rename = move |_| busy_task(c, async move {
                 let s = session(c)?;
@@ -1504,20 +1537,40 @@ fn categories(c: Ctx) -> impl IntoView {
                     Ok(())
                 });
             };
+            let (n, sum) = used.get(&id).copied().unwrap_or_default();
+            let slot = color_slot(&d, income, id);
             view! {
-                <li class="item" data-test="category-item" data-income=income.to_string()>
-                    <span class="hint">{if income { "Income" } else { "Expense" }}</span>
-                    <input data-test="category-name" prop:value=move || name.get() on:input=move |e| name.set(event_target_value(&e)) />
-                    <button data-test="category-save" on:click=rename>"Rename"</button>
-                    <label>"Merge into"
-                        <select data-test="merge-target" on:change=move |e| if let Ok(i) = event_target_value(&e).parse() { target.set(i) }>
-                            {others.into_iter().map(|(i, x)| view! { <option value=i.to_string() selected=move || target.get() == i>{x.name}</option> }).collect_view()}
-                        </select>
-                    </label>
-                    <button data-test="merge" on:click=merge>"Merge"</button>
+                <li class="entry" data-test="category-item" data-income=income.to_string()>
+                    <details>
+                        <summary class="entry-row">
+                            <span class=format!("badge tint s{slot}")>{icon(crate::icons::for_category(id, income))}</span>
+                            <span class="grow"><span class="name">{cat_name}</span><span class="hint">{usage_line(n, sum)}</span></span>
+                            <span class="chev">{icon(Icon::Chevron)}</span>
+                        </summary>
+                        <div class="edit">
+                            <div class="row">
+                                <input data-test="category-name" aria-label="Name" prop:value=move || name.get() on:input=move |e| name.set(event_target_value(&e)) />
+                                <button data-test="category-save" on:click=rename>"Rename"</button>
+                            </div>
+                            <div class="row">
+                                <label class="merge"><span class="hint">"Merge into"</span>
+                                    <select data-test="merge-target" on:change=move |e| if let Ok(i) = event_target_value(&e).parse() { target.set(i) }>
+                                        {others.into_iter().map(|(i, x)| view! { <option value=i.to_string() selected=move || target.get() == i>{x.name}</option> }).collect_view()}
+                                    </select>
+                                </label>
+                                <button data-test="merge" on:click=merge>"Merge"</button>
+                            </div>
+                        </div>
+                    </details>
                 </li>
             }
-        }).collect_view()
+        }).collect_view();
+        view! {
+            <section class="slipcard">
+                <p class="slipcard-head"><span>{if income_side { "Income" } else { "Expenses" }}</span><span class="num">{count}</span></p>
+                <ul class="ledger">{rows}</ul>
+            </section>
+        }
     };
     view! {
         <div class="segmented">
@@ -1528,7 +1581,9 @@ fn categories(c: Ctx) -> impl IntoView {
             <input data-test="new-category" placeholder="New category" prop:value=move || draft.get() on:input=move |e| draft.set(event_target_value(&e)) />
             <button class="primary" data-test="add-category" on:click=add>"Add"</button>
         </div>
-        <ul class="items">{rows}</ul>
+        <p class="hint">"Tap a category to rename it or merge it into another."</p>
+        {move || card(false)}
+        {move || card(true)}
     }
 }
 
@@ -1548,9 +1603,17 @@ fn accounts(c: Ctx) -> impl IntoView {
         });
     };
     let rows = move || {
-        let list = c.data.with(Data::account_list);
+        let d = c.data.get();
+        let list = d.account_list();
         let last = list.len() <= 1;
         list.into_iter().map(|(id, a)| {
+            let mine = d.txs.iter().filter(|(_, t)| t.account_id == id && t.duplicate_of.is_none());
+            let (n, balance) = mine.fold((0usize, 0i64), |(n, b), (_, t)| match t.kind {
+                TxKind::Income => (n + 1, b + t.amount_pln),
+                TxKind::Expense => (n + 1, b - t.amount_pln),
+                TxKind::Transfer => (n + 1, b),
+            });
+            let shown = a.name.clone();
             let name = RwSignal::new(a.name.clone());
             let currency = a.currency.clone();
             let rename = move |_| {
@@ -1572,13 +1635,23 @@ fn accounts(c: Ctx) -> impl IntoView {
                 after_write(c, &s).await;
                 Ok(())
             });
+            let meta = if n == 0 { "no operations yet".to_string() } else { format!("{n} operations · balance {}", signed_pln(balance)) };
             view! {
-                <li class="item" data-test="account-item">
-                    <input data-test="account-name" prop:value=move || name.get() on:input=move |e| name.set(event_target_value(&e)) />
-                    <div class="row">
-                        <button data-test="account-save" on:click=rename>"Rename"</button>
-                        {(!last).then(|| view! { <button data-test="account-delete" on:click=delete>"Delete"</button> })}
-                    </div>
+                <li class="entry" data-test="account-item">
+                    <details>
+                        <summary class="entry-row">
+                            <span class="badge">{icon(Icon::Wallet)}</span>
+                            <span class="grow"><span class="name">{shown}</span><span class="hint">{meta}</span></span>
+                            <span class="chev">{icon(Icon::Chevron)}</span>
+                        </summary>
+                        <div class="edit">
+                            <input data-test="account-name" aria-label="Name" prop:value=move || name.get() on:input=move |e| name.set(event_target_value(&e)) />
+                            <div class="row">
+                                <button data-test="account-save" on:click=rename>"Rename"</button>
+                                {(!last).then(|| view! { <button class="quiet-danger" data-test="account-delete" on:click=delete>"Delete"</button> })}
+                            </div>
+                        </div>
+                    </details>
                 </li>
             }
         }).collect_view()
@@ -1588,13 +1661,22 @@ fn accounts(c: Ctx) -> impl IntoView {
             <input data-test="new-account" placeholder="New account" prop:value=move || draft.get() on:input=move |e| draft.set(event_target_value(&e)) />
             <button class="primary" data-test="add-account" on:click=add>"Add"</button>
         </div>
-        <ul class="items">{rows}</ul>
+        <section class="slipcard"><ul class="ledger">{rows}</ul></section>
     }
 }
 
 fn merchants(c: Ctx) -> impl IntoView {
     let rows = move || {
-        c.data.with(Data::merchant_list).into_iter().map(|(id, m)| {
+        let d = c.data.get();
+        d.merchant_list().into_iter().map(|(id, m)| {
+            let mine = d.txs.iter().filter(|(_, t)| t.merchant_id == Some(id) && t.duplicate_of.is_none() && t.kind == TxKind::Expense);
+            let (n, sum) = mine.fold((0usize, 0i64), |(n, s), (_, t)| (n + 1, s + t.amount_pln));
+            let shown = m.name.clone();
+            let badge = initial(&m.name);
+            let meta = match &m.nip {
+                Some(x) => format!("NIP {x} · {}", usage_line(n, sum)),
+                None => usage_line(n, sum),
+            };
             let name = RwSignal::new(m.name.clone());
             let nip = RwSignal::new(m.nip.clone().unwrap_or_default());
             let save = move |_| busy_task(c, async move {
@@ -1616,20 +1698,31 @@ fn merchants(c: Ctx) -> impl IntoView {
                 Ok(())
             });
             view! {
-                <li class="item" data-test="merchant-item">
-                    <input data-test="merchant-name" prop:value=move || name.get() on:input=move |e| name.set(event_target_value(&e)) />
-                    <label>"NIP (optional)"<input data-test="merchant-nip" inputmode="numeric" prop:value=move || nip.get() on:input=move |e| nip.set(event_target_value(&e)) /></label>
-                    <div class="row">
-                        <button data-test="merchant-save" on:click=save>"Save"</button>
-                        <button data-test="merchant-delete" on:click=delete>"Delete"</button>
-                    </div>
+                <li class="entry" data-test="merchant-item">
+                    <details>
+                        <summary class="entry-row">
+                            <span class="badge letter">{badge}</span>
+                            <span class="grow"><span class="name">{shown}</span><span class="hint">{meta}</span></span>
+                            <span class="chev">{icon(Icon::Chevron)}</span>
+                        </summary>
+                        <div class="edit">
+                            <label class="f"><span>"Name"</span>
+                                <input data-test="merchant-name" prop:value=move || name.get() on:input=move |e| name.set(event_target_value(&e)) /></label>
+                            <label class="f"><span>"NIP"</span>
+                                <input data-test="merchant-nip" inputmode="numeric" placeholder="optional" prop:value=move || nip.get() on:input=move |e| nip.set(event_target_value(&e)) /></label>
+                            <div class="row">
+                                <button data-test="merchant-save" on:click=save>"Save"</button>
+                                <button class="quiet-danger" data-test="merchant-delete" on:click=delete>"Delete"</button>
+                            </div>
+                        </div>
+                    </details>
                 </li>
             }
         }).collect_view()
     };
     view! {
-        <p class="hint">"Merchants are added when you enter an operation."</p>
-        <ul class="items">{rows}</ul>
+        <p class="hint">"Merchants are added when you enter an operation. Tap one to rename it or add its NIP."</p>
+        <section class="slipcard"><ul class="ledger">{rows}</ul></section>
     }
 }
 

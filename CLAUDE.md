@@ -59,6 +59,9 @@ Principles, highest priority first:
   groups under a mixed receipt, the detail lists lines under their category.
 - Stats: Income/Expenses tabs, a ring by category (8 validated hues per theme, gray for Other, color fixed per
   category), and a tapped category leaves every number on that screen (`Filter.exclude`).
+- Home Summary shows rings by category for expenses and income; a tap opens the category. Categories, merchants and
+  accounts are receipt cards (`.slipcard`), one row per entry with a badge and its use, opening in place to edit.
+  (`.sheet` is the calendar bottom sheet, do not reuse it.)
 - Categories are English: Food, Household, Subscriptions, Transport, Health, Clothing, Entertainment,
   Cafes & restaurants, Other. Built-ins have fixed ids. Merging sets `merged_into` instead of rewriting records.
 

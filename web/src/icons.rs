@@ -30,6 +30,7 @@ pub enum Icon {
     Calendar,
     Upload,
     Search,
+    Chevron,
 }
 
 fn paths(i: Icon) -> &'static [&'static str] {
@@ -62,6 +63,7 @@ fn paths(i: Icon) -> &'static [&'static str] {
         Icon::Calendar => &["M4 6h16v14H4z", "M4 10h16", "M8 3v5", "M16 3v5"],
         Icon::Upload => &["M12 15V4", "M8 8l4-4 4 4", "M4 15v4h16v-4"],
         Icon::Search => &["M16.5 10.5a6 6 0 1 1-12 0 6 6 0 0 1 12 0z", "M15 15l5 5"],
+        Icon::Chevron => &["M9 6l6 6-6 6"],
     }
 }
 
@@ -75,16 +77,22 @@ pub fn for_tx(t: &Transaction, category: Uuid) -> Icon {
     match t.kind {
         TxKind::Income => Icon::Download,
         TxKind::Transfer => Icon::Transfer,
-        TxKind::Expense => match category {
-            c if c == CAT_FOOD => Icon::Cart,
-            c if c == CAT_HOUSEHOLD => Icon::Home,
-            c if c == CAT_TRANSPORT => Icon::Transport,
-            c if c == CAT_HEALTH => Icon::Health,
-            c if c == CAT_CLOTHING => Icon::Clothing,
-            c if c == CAT_ENTERTAINMENT => Icon::Fun,
-            c if c == CAT_CAFES => Icon::Food,
-            c if c == CAT_SUBSCRIPTIONS => Icon::Repeat,
-            _ => Icon::Receipt,
-        },
+        TxKind::Expense => for_category(category, false),
+    }
+}
+
+/// The picture for a category.
+pub fn for_category(category: Uuid, income: bool) -> Icon {
+    match category {
+        _ if income => Icon::Download,
+        c if c == CAT_FOOD => Icon::Cart,
+        c if c == CAT_HOUSEHOLD => Icon::Home,
+        c if c == CAT_TRANSPORT => Icon::Transport,
+        c if c == CAT_HEALTH => Icon::Health,
+        c if c == CAT_CLOTHING => Icon::Clothing,
+        c if c == CAT_ENTERTAINMENT => Icon::Fun,
+        c if c == CAT_CAFES => Icon::Food,
+        c if c == CAT_SUBSCRIPTIONS => Icon::Repeat,
+        _ => Icon::Receipt,
     }
 }
