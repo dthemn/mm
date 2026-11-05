@@ -42,6 +42,8 @@ Principles, highest priority first:
   to any year, month or day. Stats keeps the trend, top merchants and subscriptions.
 - The camera is a full-screen overlay. The light button shows only when `getCapabilities().torch` is true; whether
   iPhone Safari offers it is unverified.
+- The operation form is a receipt: label left, value right, dashed rules. On a new operation an upload button takes
+  a receipt photo (recognized), a CSV statement (opens the import preview via `Ctx.upload`) or a PDF (not read yet, says so).
 - Only `main` scrolls; the page itself does not, so the tab bar (icons with small captions) stays at the bottom on iOS.
 - Categories are English: Food, Household, Subscriptions, Transport, Health, Clothing, Entertainment,
   Cafes & restaurants, Other. Built-ins have fixed ids. Merging sets `merged_into` instead of rewriting records.
@@ -86,7 +88,7 @@ docker compose -f compose.dev.yml up -d        # throwaway test DB on 127.0.0.1:
 cargo test -p mm-core                          # 149 tests
 cargo test -p mm-server                        # 21 tests, needs the test DB
 web/build.sh && cargo build -p mm-server
-node e2e/run.mjs > /tmp/e2e.log 2>&1           # 49 tests; write to a file, never pipe into head or tail
+node e2e/run.mjs > /tmp/e2e.log 2>&1           # 51 tests; write to a file, never pipe into head or tail
 LIMIT=90000 node e2e/scan.mjs                  # real receipts in samples/receipts, prints scores only
 SHOW=1 ...                                     # also prints recognized lines (sets localStorage.mmDebug)
 docker compose up --build -d                   # whole app on http://localhost:8080 (use localhost, not 127.0.0.1)

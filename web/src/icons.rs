@@ -28,6 +28,7 @@ pub enum Icon {
     Gallery,
     Pencil,
     Calendar,
+    Upload,
 }
 
 fn paths(i: Icon) -> &'static [&'static str] {
@@ -58,6 +59,7 @@ fn paths(i: Icon) -> &'static [&'static str] {
         Icon::Gallery => &["M4 5h16v14H4z", "M4 16l5-5 4 4 3-3 4 4", "M15.5 9h.01"],
         Icon::Pencil => &["M4 20h4L19 9l-4-4L4 16z", "M13.5 6.5l4 4"],
         Icon::Calendar => &["M4 6h16v14H4z", "M4 10h16", "M8 3v5", "M16 3v5"],
+        Icon::Upload => &["M12 15V4", "M8 8l4-4 4 4", "M4 15v4h16v-4"],
     }
 }
 

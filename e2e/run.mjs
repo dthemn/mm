@@ -6,6 +6,8 @@ import { spawn, execFileSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
+import { writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { createServer } from "node:http";
 import puppeteer from "puppeteer-core";
 
@@ -957,6 +959,45 @@ await test("a monthly payment is shown as a subscription", async () => {
   await fin.click("nav-stats");
   await fin.waitText("subscription", "NETFLIX");
   ok((await fin.text("subscription")).includes("monthly, 3 payments"), "cadence and count");
+});
+
+await test("the Add screen takes a receipt photo, a CSV statement or a PDF", async () => {
+  const add = async () => {
+    await fin.click("nav-add");
+    return fin.page.waitForSelector(q("upload-file"));
+  };
+  // A PDF is not read yet, and says so.
+  const pdf = join(tmpdir(), `mm-${process.pid}.pdf`);
+  writeFileSync(pdf, "%PDF-1.4\n%%EOF\n");
+  await (await add()).uploadFile(pdf);
+  await fin.waitText("error", "PDF statements and invoices are not supported yet");
+  // A statement opens the import preview, before anything is saved.
+  await (await add()).uploadFile(join(root, "e2e/fixtures", "statement.csv"));
+  await fin.waitText("import-counts", "6 operations, 0 new, 6 already imported");
+  // A photo is recognized into the form.
+  await (await add()).uploadFile(FIXTURE);
+  await fin.page.waitForSelector(q("scan-hint"), { timeout: 60000 });
+  eq(await fin.page.$eval(q("f-amount"), (e) => e.value), "38,86", "total from the photo");
+  if (process.env.SHOT_RECEIPT) await fin.page.screenshot({ path: process.env.SHOT_RECEIPT, fullPage: true });
+  ok(!(await fin.page.$(q("upload"))), "no upload button while checking a receipt");
+  await fin.click("form-back");
+  await fin.page.waitForSelector(q("dash-balance"));
+});
+
+await test("the form rows fit the screen: label left, value right", async () => {
+  await fin.click("nav-add");
+  await fin.page.waitForSelector(q("f-time"));
+  const rows = await fin.page.$$eval(".rform .f", (a) => a.map((e) => {
+    const r = e.getBoundingClientRect();
+    const i = e.querySelector("input, select");
+    const ir = i ? i.getBoundingClientRect() : r;
+    return { h: r.height, right: Math.round(ir.right), edge: Math.round(r.right) };
+  }));
+  ok(rows.length >= 9, `rows: ${rows.length}`);
+  ok(rows.every((r) => r.h <= 64), `rows are compact: ${rows.map((r) => r.h)}`);
+  ok(rows.every((r) => r.right <= r.edge + 1), `no field runs past the card: ${JSON.stringify(rows)}`);
+  if (process.env.SHOT_FORM) await fin.page.screenshot({ path: process.env.SHOT_FORM });
+  await fin.click("form-back");
 });
 
 await test("the theme is dark by default, and light is saved in the account", async () => {

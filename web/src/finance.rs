@@ -1076,21 +1076,25 @@ pub fn edit(c: Ctx, id: Option<Uuid>) -> impl IntoView {
         view! {
             <li class="item" class:doubt=i.doubt data-test="item">
                 {i.doubt.then(|| view! { <p class="warn" data-test="item-doubt">"Check this item"</p> })}
-                <label>"Name"<input data-test="item-name" prop:value=move || i.name.get() on:input=move |e| i.name.set(event_target_value(&e)) /></label>
-                <div class="row">
-                    <label>"Quantity"<input data-test="item-qty" inputmode="decimal" prop:value=move || i.qty.get() on:input=move |e| i.qty.set(event_target_value(&e)) /></label>
-                    <label>"Unit"<input data-test="item-unit" prop:value=move || i.unit.get() on:input=move |e| i.unit.set(event_target_value(&e)) /></label>
+                <div class="item-head">
+                    <input class="item-name" data-test="item-name" placeholder="Item name" aria-label="Name" prop:value=move || i.name.get() on:input=move |e| i.name.set(event_target_value(&e)) />
+                    <button class="item-remove" data-test="item-remove" aria-label="Remove item" on:click=move |_| items.update(|v| v.retain(|x| x.key != key))>{icon(Icon::Close)}</button>
                 </div>
-                <div class="row">
+                <div class="igrid">
+                    <label>"Qty"<input data-test="item-qty" inputmode="decimal" prop:value=move || i.qty.get() on:input=move |e| i.qty.set(event_target_value(&e)) /></label>
+                    <label>"Unit"<input data-test="item-unit" prop:value=move || i.unit.get() on:input=move |e| i.unit.set(event_target_value(&e)) /></label>
                     <label>"Price"<input data-test="item-price" inputmode="decimal" prop:value=move || i.price.get() on:input=move |e| i.price.set(event_target_value(&e)) /></label>
                     <label>"Discount"<input data-test="item-discount" inputmode="decimal" prop:value=move || i.discount.get() on:input=move |e| i.discount.set(event_target_value(&e)) /></label>
-                </div>
-                <div class="row">
-                    <label>"VAT, %"<input data-test="item-vat" inputmode="decimal" prop:value=move || i.vat.get() on:input=move |e| i.vat.set(event_target_value(&e)) /></label>
+                    <label>"VAT %"<input data-test="item-vat" inputmode="decimal" prop:value=move || i.vat.get() on:input=move |e| i.vat.set(event_target_value(&e)) /></label>
                     <label>"Category"{category_select(c, i.category, "item-category")}</label>
                 </div>
-                <button data-test="item-remove" on:click=move |_| items.update(|v| v.retain(|x| x.key != key))>"Remove item"</button>
             </li>
+        }
+    };
+    let upload_status = RwSignal::new(String::new());
+    let upload = move |ev: leptos::ev::Event| {
+        if let Some(input) = ev.target().and_then(|t| t.dyn_into::<web_sys::HtmlInputElement>().ok()) {
+            crate::scan::open_upload(c, input, upload_status);
         }
     };
 
@@ -1099,6 +1103,15 @@ pub fn edit(c: Ctx, id: Option<Uuid>) -> impl IntoView {
             <h1>{if scanned { "Check the receipt" } else if id.is_some() { "Edit operation" } else { "New operation" }}</h1>
             <button data-test="form-back" on:click=move |_| c.screen.set(id.map_or(Screen::Dashboard, Screen::Tx))>"Back"</button>
         </header>
+        {(id.is_none() && !scanned).then(|| view! {
+            <label class="button upload" class:disabled=move || c.busy.get() data-test="upload">
+                {icon(Icon::Upload)}
+                <span>"Upload a receipt, PDF or statement"</span>
+                <input type="file" class="file" data-test="upload-file" disabled=move || c.busy.get()
+                    accept="image/*,.pdf,application/pdf,.csv,text/csv,text/plain" on:change=upload />
+            </label>
+            <p class="hint" data-test="upload-status">{move || upload_status.get()}</p>
+        })}
         {boxes}
         <div class="segmented">
             <button data-test="kind-expense" class:active=move || kind.get() == TxKind::Expense on:click=move |_| kind.set(TxKind::Expense)>"Expense"</button>
@@ -1112,17 +1125,69 @@ pub fn edit(c: Ctx, id: Option<Uuid>) -> impl IntoView {
                 "Everything adds up. Check and save."
             }}</p>
         })}
-        {move || match (items_sum(), receipt) {
-            (None, _) | (Some(_), true) => view! {
-                <label class:doubt=doubts.total>{if receipt { "Receipt total" } else { "Amount" }}
-                    <input class="big-input" data-test="f-amount" inputmode="decimal" placeholder="0,00"
-                        prop:value=move || amount.get() on:input=move |e| amount.set(event_target_value(&e)) />
-                </label>
-            }.into_any(),
-            (Some(sum), false) => view! {
-                <p>"Amount: "<strong data-test="f-sum">{sum.map(format_amount).unwrap_or_else(|| "check the items".into())}</strong></p>
-            }.into_any(),
-        }}
+        <div class="rform" data-test="form">
+            {move || match (items_sum(), receipt) {
+                (None, _) | (Some(_), true) => view! {
+                    <label class="f total" class:doubt=doubts.total>{if receipt { "Receipt total" } else { "Amount" }}
+                        <input data-test="f-amount" inputmode="decimal" placeholder="0,00"
+                            prop:value=move || amount.get() on:input=move |e| amount.set(event_target_value(&e)) />
+                    </label>
+                }.into_any(),
+                (Some(sum), false) => view! {
+                    <p class="f total"><span>"Amount"</span><strong data-test="f-sum">{sum.map(format_amount).unwrap_or_else(|| "check the items".into())}</strong></p>
+                }.into_any(),
+            }}
+            <label class="f">"Currency"<input data-test="f-currency" maxlength="3" autocapitalize="characters" prop:value=move || currency.get() on:input=move |e| currency.set(event_target_value(&e)) /></label>
+            {move || (currency.get().trim().to_uppercase() != "PLN").then(|| view! {
+                <label class="f">"In PLN"<input data-test="f-pln" inputmode="decimal" prop:value=move || amount_pln.get() on:input=move |e| amount_pln.set(event_target_value(&e)) /></label>
+                <button class="link" data-test="f-nbp" on:click=move |_| {
+                    let (cur, day, amt) = (currency.get_untracked().trim().to_uppercase(), Date::parse_iso(&date.get_untracked()), parse_amount(&amount.get_untracked()));
+                    leptos::task::spawn_local(async move {
+                        let (Some(day), Ok(amt)) = (day, amt) else { rate_note.set("Enter the amount and date first".into()); return };
+                        match crate::import::nbp_rate(&cur, day, &mut Default::default()).await {
+                            Ok(Some((when, rate))) => {
+                                amount_pln.set(convert(amt, rate).map(amount_input).unwrap_or_default());
+                                rate_note.set(format!("NBP rate {} from {}", mm_core::money::format_rate(rate), when.display()));
+                            }
+                            Ok(None) => rate_note.set("NBP has no rate for this currency and date".into()),
+                            Err(e) => rate_note.set(e),
+                        }
+                    });
+                }>"Use the NBP rate"</button>
+            })}
+            {move || (!rate_note.get().is_empty()).then(|| view! { <p class="hint">{rate_note.get()}</p> })}
+            <label class="f" class:doubt=doubts.date>"Date"<input type="date" data-test="f-date" prop:value=move || date.get() on:input=move |e| date.set(event_target_value(&e)) /></label>
+            <label class="f">"Time"<input type="time" data-test="f-time" prop:value=move || time.get() on:input=move |e| time.set(event_target_value(&e)) /></label>
+            <label class="f" class:doubt=doubts.merchant>"Merchant"
+                <input data-test="f-merchant" list="merchants" autocomplete="off" placeholder="Shop or payer" prop:value=move || merchant.get() on:input=move |e| merchant.set(event_target_value(&e)) />
+            </label>
+            <datalist id="merchants">
+                {move || c.data.with(Data::merchant_list).into_iter().map(|(_, m)| view! { <option value=m.name></option> }).collect_view()}
+            </datalist>
+            <label class="f" class:doubt=doubts.nip>"NIP"<input data-test="f-nip" inputmode="numeric" autocomplete="off" placeholder="optional" prop:value=move || nip.get() on:input=move |e| nip.set(event_target_value(&e)) /></label>
+            {move || {
+                let n = normalize_nip(&nip.get());
+                (!n.is_empty() && !valid_nip(&n)).then(|| view! {
+                    <p class="warn" data-test="nip-warning">"This NIP looks wrong. You can still save."</p>
+                })
+            }}
+            <label class="f">"Category"{category_select(c, category, "f-category")}</label>
+            <label class="f">"Account"
+                <select data-test="f-account" on:change=move |e| if let Ok(i) = event_target_value(&e).parse() { account.set(i) }>
+                    {move || c.data.with(Data::account_list).into_iter().map(|(i, a)| view! {
+                        <option value=i.to_string() selected=move || account.get() == i>{a.name}</option>
+                    }).collect_view()}
+                </select>
+            </label>
+            <label class="f">"Payment"
+                <select data-test="f-payment" on:change=move |e| payment.set(Payment::from_code(&event_target_value(&e)))>
+                    {Payment::ALL.into_iter().map(|p| view! {
+                        <option value=p.code() selected=move || payment.get() == p>{p.label()}</option>
+                    }).collect_view()}
+                </select>
+            </label>
+            <label class="f">"Note"<input data-test="f-note" placeholder="—" prop:value=move || note.get() on:input=move |e| note.set(event_target_value(&e)) /></label>
+        </div>
         {move || {
             let sum = items_sum().flatten()?;
             let total = parse_amount(&amount.get()).ok()?;
@@ -1137,66 +1202,11 @@ pub fn edit(c: Ctx, id: Option<Uuid>) -> impl IntoView {
                 </div>
             })
         }}
-        <div class="row">
-            <label>"Currency"<input data-test="f-currency" maxlength="3" autocapitalize="characters" prop:value=move || currency.get() on:input=move |e| currency.set(event_target_value(&e)) /></label>
-            {move || (currency.get().trim().to_uppercase() != "PLN").then(|| view! {
-                <label>"In PLN"<input data-test="f-pln" inputmode="decimal" prop:value=move || amount_pln.get() on:input=move |e| amount_pln.set(event_target_value(&e)) /></label>
-                <button data-test="f-nbp" on:click=move |_| {
-                    let (cur, day, amt) = (currency.get_untracked().trim().to_uppercase(), Date::parse_iso(&date.get_untracked()), parse_amount(&amount.get_untracked()));
-                    leptos::task::spawn_local(async move {
-                        let (Some(day), Ok(amt)) = (day, amt) else { rate_note.set("Enter the amount and date first".into()); return };
-                        match crate::import::nbp_rate(&cur, day, &mut Default::default()).await {
-                            Ok(Some((when, rate))) => {
-                                amount_pln.set(convert(amt, rate).map(amount_input).unwrap_or_default());
-                                rate_note.set(format!("NBP rate {} from {}", mm_core::money::format_rate(rate), when.display()));
-                            }
-                            Ok(None) => rate_note.set("NBP has no rate for this currency and date".into()),
-                            Err(e) => rate_note.set(e),
-                        }
-                    });
-                }>"NBP rate"</button>
-            })}
-        </div>
-        <div class="row">
-            <label class:doubt=doubts.date>"Date"<input type="date" data-test="f-date" prop:value=move || date.get() on:input=move |e| date.set(event_target_value(&e)) /></label>
-            <label>"Time"<input type="time" data-test="f-time" prop:value=move || time.get() on:input=move |e| time.set(event_target_value(&e)) /></label>
-        </div>
-        <label class:doubt=doubts.merchant>"Merchant"
-            <input data-test="f-merchant" list="merchants" autocomplete="off" prop:value=move || merchant.get() on:input=move |e| merchant.set(event_target_value(&e)) />
-            <datalist id="merchants">
-                {move || c.data.with(Data::merchant_list).into_iter().map(|(_, m)| view! { <option value=m.name></option> }).collect_view()}
-            </datalist>
-        </label>
-        <label class:doubt=doubts.nip>"NIP (optional)"<input data-test="f-nip" inputmode="numeric" autocomplete="off" prop:value=move || nip.get() on:input=move |e| nip.set(event_target_value(&e)) /></label>
-        {move || {
-            let n = normalize_nip(&nip.get());
-            (!n.is_empty() && !valid_nip(&n)).then(|| view! {
-                <p class="warn" data-test="nip-warning">"This NIP looks wrong. You can still save."</p>
-            })
-        }}
-        <label>"Category"{category_select(c, category, "f-category")}</label>
-        <div class="row">
-            <label>"Account"
-                <select data-test="f-account" on:change=move |e| if let Ok(i) = event_target_value(&e).parse() { account.set(i) }>
-                    {move || c.data.with(Data::account_list).into_iter().map(|(i, a)| view! {
-                        <option value=i.to_string() selected=move || account.get() == i>{a.name}</option>
-                    }).collect_view()}
-                </select>
-            </label>
-            <label>"Payment"
-                <select data-test="f-payment" on:change=move |e| payment.set(Payment::from_code(&event_target_value(&e)))>
-                    {Payment::ALL.into_iter().map(|p| view! {
-                        <option value=p.code() selected=move || payment.get() == p>{p.label()}</option>
-                    }).collect_view()}
-                </select>
-            </label>
-        </div>
-        <label>"Note"<input data-test="f-note" prop:value=move || note.get() on:input=move |e| note.set(event_target_value(&e)) /></label>
-        <h2>"Items"</h2>
+        <h2 class="rule-head">"Items"</h2>
         <ul class="items">
             <For each=move || items.get() key=|i| i.key children=item_row />
         </ul>
-        <button data-test="add-item" on:click=move |_| items.update(|v| v.push(ItemDraft::blank(category.get_untracked())))>"Add item"</button>
+        <button class="dashed" data-test="add-item" on:click=move |_| items.update(|v| v.push(ItemDraft::blank(category.get_untracked())))>{icon(Icon::Plus)}"Add item"</button>
         {move || (!form_error.get().is_empty()).then(|| view! { <p class="error" data-test="form-error">{form_error.get()}</p> })}
         <button class="primary" data-test="f-save" disabled=move || c.busy.get() on:click=save>"Save"</button>
         {id.is_some().then(|| view! { <button class="danger" data-test="f-delete" disabled=move || c.busy.get() on:click=delete>"Delete"</button> })}

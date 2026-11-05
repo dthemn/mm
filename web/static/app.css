@@ -186,3 +186,35 @@ label.button .file { position: absolute; inset: 0; opacity: 0; min-height: 0; wi
 .dgrid button { min-height: 40px; padding: 0; border: 0; border-radius: 50%; font-size: 15px; position: relative; height: 40px; }
 .dgrid button.today { border: 1px solid var(--accent); }
 .dgrid button.has::after { content: ""; position: absolute; left: 50%; bottom: 4px; width: 5px; height: 5px; margin-left: -2.5px; border-radius: 50%; background: var(--accent); }
+
+/* The operation form, laid out like a receipt: label on the left, value on the right, dashed rules between. */
+label.button.upload { flex-direction: row; gap: 10px; border-style: dashed; color: var(--fg); font-size: 15px; }
+label.button.upload .icon { width: 20px; height: 20px; flex: none; }
+.rform { display: flex; flex-direction: column; border: 1px dashed var(--rule); border-radius: 6px; padding: 2px 14px; }
+.rform .f { flex-direction: row; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px;
+  padding: 2px 0; border-bottom: 1px dashed var(--rule); font-size: 14px; color: var(--muted); white-space: nowrap; }
+.rform .f:last-child { border-bottom: 0; }
+.rform .f input, .rform .f select { flex: 1; min-width: 0; width: auto; min-height: 38px; border: 0; border-radius: 0; padding: 4px 0;
+  background: transparent; text-align: right; text-align-last: right; font-size: 15px; color: var(--fg); }
+.rform .f input::placeholder { color: var(--muted); opacity: .6; }
+.rform .f input:focus, .rform .f select:focus { outline: none; }
+.rform .f:focus-within { border-bottom-color: var(--accent); }
+.rform .f select { -webkit-appearance: none; appearance: none; }
+.rform input[type="date"], .rform input[type="time"] { -webkit-appearance: none; appearance: none; display: block; }
+.rform input::-webkit-date-and-time-value { text-align: right; }
+.rform .f.total { min-height: 56px; color: var(--fg); font-weight: 700; text-transform: uppercase; letter-spacing: .5px; border-bottom-style: double; border-bottom-width: 3px; }
+.rform .f.total input, .rform .f.total strong { font-size: 24px; font-weight: 700; letter-spacing: 0; }
+.rform .f.doubt { color: var(--warn); } .rform .f.doubt input { border: 0; color: var(--warn); }
+.rform .warn, .rform .hint { font-size: 13px; padding: 4px 0; }
+button.link { border: 0; min-height: 36px; padding: 0; width: auto; align-self: flex-end; color: var(--accent); font-size: 14px; }
+button.dashed { border-style: dashed; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 15px; }
+button.dashed .icon { width: 18px; height: 18px; }
+h2.rule-head { font-size: 13px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-top: 8px; }
+.item { gap: 6px; }
+.item-head { display: flex; align-items: center; gap: 6px; }
+.item-head .item-name { border: 0; border-bottom: 1px dashed var(--rule); border-radius: 0; padding: 4px 0; min-height: 38px; font-weight: 600; }
+.item-remove { width: 36px; min-height: 36px; flex: none; padding: 0; border: 0; display: flex; align-items: center; justify-content: center; color: var(--muted); }
+.item-remove .icon { width: 18px; height: 18px; }
+.igrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px 8px; }
+.igrid label { font-size: 12px; gap: 2px; min-width: 0; }
+.igrid input, .igrid select { min-height: 36px; padding: 4px 8px; font-size: 15px; border-radius: 6px; min-width: 0; }

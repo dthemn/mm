@@ -60,6 +60,8 @@ pub struct Ctx {
     pub filter: finance::FilterState,
     /// A recognized receipt waiting for review. It never contains the photo.
     pub draft: StoredValue<Option<finance::Draft>, LocalStorage>,
+    /// A statement chosen on the Add screen, read by the import screen. Never leaves the device.
+    pub upload: StoredValue<Option<(String, Vec<u8>)>, LocalStorage>,
     phrase: StoredValue<Option<Rc<Phrase>>, LocalStorage>,
     invite: RwSignal<String>,
     label: RwSignal<String>,
@@ -225,6 +227,7 @@ pub fn App() -> impl IntoView {
         session: RwSignal::new_local(None),
         data: RwSignal::new(Data::default()),
         draft: StoredValue::new_local(None),
+        upload: StoredValue::new_local(None),
         filter: finance::FilterState::new(Month { year: today().year, month: today().month }),
         status: RwSignal::new(String::new()),
         issues: RwSignal::new(vec![]),

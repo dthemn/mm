@@ -259,6 +259,76 @@ fn draft(c: Ctx, p: &receipt::Parsed) -> Result<Draft, String> {
     Ok(Draft { tx, merchant, doubts, suggested })
 }
 
+/// Recognizes a receipt and opens it for review.
+pub async fn open_receipt(c: Ctx, gray: Gray, status: RwSignal<String>) -> Result<(), String> {
+    let lines = recognize(gray, move |s| status.set(s)).await?;
+    debug_lines(&lines);
+    let parsed = receipt::parse(&lines);
+    status.set(String::new());
+    if parsed.items.is_empty() && parsed.total.is_none() {
+        return Err("No receipt was found in this photo. Try again with the whole receipt in the frame and good light".into());
+    }
+    c.draft.set_value(Some(draft(c, &parsed)?));
+    // Setting the screen notifies even when the form is already open, so it is rebuilt with the draft.
+    c.screen.set(Screen::Edit(None));
+    Ok(())
+}
+
+/// What a chosen file is, by its type and name.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum FileKind {
+    Photo,
+    Table,
+    Pdf,
+    Unknown,
+}
+
+pub fn file_kind(mime: &str, name: &str) -> FileKind {
+    let ext = name.rsplit_once('.').map(|x| x.1.to_ascii_lowercase()).unwrap_or_default();
+    if mime.starts_with("image/") || ["jpg", "jpeg", "png", "heic", "heif", "webp"].contains(&ext.as_str()) {
+        FileKind::Photo
+    } else if mime == "application/pdf" || ext == "pdf" {
+        FileKind::Pdf
+    } else if mime.starts_with("text/") || ["csv", "txt", "tsv"].contains(&ext.as_str()) {
+        FileKind::Table
+    } else {
+        FileKind::Unknown
+    }
+}
+
+/// A file from the Add screen: a receipt photo is recognized, a statement opens the import preview.
+pub fn open_upload(c: Ctx, input: web_sys::HtmlInputElement, status: RwSignal<String>) {
+    let Some(file) = input.files().and_then(|f| f.get(0)) else { return };
+    c.error.set(String::new());
+    match file_kind(&file.type_(), &file.name()) {
+        FileKind::Photo => crate::app::busy_task(c, async move {
+            let g = from_file(&input).await?;
+            match g {
+                Some(g) => open_receipt(c, g, status).await,
+                None => Ok(()),
+            }
+        }),
+        FileKind::Table => spawn_local(async move {
+            match JsFuture::from(file.array_buffer()).await {
+                Ok(buf) => {
+                    c.upload.set_value(Some((file.name(), js_sys::Uint8Array::new(&buf).to_vec())));
+                    c.screen.set(Screen::Import);
+                }
+                Err(_) => c.error.set("The file could not be read".into()),
+            }
+            input.set_value("");
+        }),
+        FileKind::Pdf => {
+            input.set_value("");
+            c.error.set("PDF statements and invoices are not supported yet. Export the statement as CSV in your bank's app, or photograph a receipt".into());
+        }
+        FileKind::Unknown => {
+            input.set_value("");
+            c.error.set("Choose a receipt photo, a PDF or a CSV statement".into());
+        }
+    }
+}
+
 fn stop(stream: &Option<MediaStream>) {
     if let Some(s) = stream {
         for t in s.get_tracks().iter() {
@@ -304,16 +374,7 @@ pub fn scan(c: Ctx) -> impl IntoView {
             stream.with_value(stop);
             camera.set(false);
             torch.set(false);
-            let lines = recognize(gray, move |s| status.set(s)).await?;
-            debug_lines(&lines);
-            let parsed = receipt::parse(&lines);
-            if parsed.items.is_empty() && parsed.total.is_none() {
-                status.set(String::new());
-                return Err("No receipt was found in this photo. Try again with the whole receipt in the frame and good light".into());
-            }
-            c.draft.set_value(Some(draft(c, &parsed)?));
-            c.screen.set(Screen::Edit(None));
-            Ok(())
+            open_receipt(c, gray, status).await
         });
     };
 

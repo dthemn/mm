@@ -97,9 +97,7 @@ pub fn import(c: Ctx) -> impl IntoView {
         date: date.get(), amount: amount.get(), debit: debit.get(), credit: credit.get(),
         currency: currency.get(), description: description.get(), counterparty: counterparty.get(),
     };
-    let pick = move |ev: leptos::ev::Event| {
-        let Some(input) = ev.target().and_then(|t| t.dyn_into::<web_sys::HtmlInputElement>().ok()) else { return };
-        read_file(input, move |res| match res {
+    let load = move |res: Result<(String, Vec<u8>), String>| match res {
             Err(e) => c.error.set(e),
             Ok((file, bytes)) => {
                 let t = import::parse_csv(&import::decode(&bytes));
@@ -116,8 +114,17 @@ pub fn import(c: Ctx) -> impl IntoView {
                 name.set(file);
                 table.set(Some(t));
             }
-        });
     };
+    let pick = move |ev: leptos::ev::Event| {
+        let Some(input) = ev.target().and_then(|t| t.dyn_into::<web_sys::HtmlInputElement>().ok()) else { return };
+        read_file(input, load);
+    };
+    // A statement chosen on the Add screen.
+    let mut waiting = None;
+    c.upload.update_value(|u| waiting = u.take());
+    if let Some(f) = waiting {
+        load(Ok(f));
+    }
     let preview = move || {
         let t = table.get()?;
         let s = c.session.get()?;
