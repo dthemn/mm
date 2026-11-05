@@ -189,6 +189,33 @@ pub async fn add_passkey(sess: &Session, phrase: &Phrase) -> Result<bool, String
     Ok(wrapped.is_some())
 }
 
+/// A session kept on this device from an earlier sign-in, while it has not expired.
+pub async fn resume(now: f64) -> Result<Option<(Session, f64)>, String> {
+    let kv = Kv::open().await?;
+    for user in device::users(&kv).await? {
+        if let Some((dek, prf, until)) = device::kept(&kv, user, now).await? {
+            return Ok(Some((session(user, dek, prf).await?, until)));
+        }
+    }
+    Ok(None)
+}
+
+pub async fn keep(sess: &Session, until: Option<f64>) -> Result<(), String> {
+    let kv = Kv::open().await?;
+    match until {
+        Some(u) => device::keep(&kv, sess.user, &sess.dek, sess.prf, u).await,
+        None => device::forget_kept(&kv, sess.user).await,
+    }
+}
+
+pub async fn forget_kept() -> Result<(), String> {
+    let kv = Kv::open().await?;
+    for user in device::users(&kv).await? {
+        device::forget_kept(&kv, user).await?;
+    }
+    Ok(())
+}
+
 pub async fn wipe_local(sess: &Session) -> Result<(), String> {
     sess.store.close().await?;
     let kv = Kv::open().await?;

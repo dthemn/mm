@@ -44,6 +44,10 @@ Principles, highest priority first:
   iPhone Safari offers it is unverified.
 - The operation form is a receipt: label left, value right, dashed rules. On a new operation an upload button takes
   a receipt photo (recognized), a CSV statement (opens the import preview via `Ctx.upload`) or a PDF (not read yet, says so).
+- "Stay signed in" (Settings, per device in `localStorage.mmKeep`: 1 min, 1 hour, 12 hours; default 12 hours, the owner's
+  choice): the DEK is kept under a separate non-extractable WebCrypto key (`keep:` in `mm-device`), valid only while
+  `localStorage.mmKeepUntil` matches, so Lock revokes it at once. iOS drops background pages, so memory alone is not enough.
+  Test devices start with 1 min.
 - Only `main` scrolls; the page itself does not, so the tab bar (icons with small captions) stays at the bottom on iOS.
 - Categories are English: Food, Household, Subscriptions, Transport, Health, Clothing, Entertainment,
   Cafes & restaurants, Other. Built-ins have fixed ids. Merging sets `merged_into` instead of rewriting records.
@@ -88,7 +92,7 @@ docker compose -f compose.dev.yml up -d        # throwaway test DB on 127.0.0.1:
 cargo test -p mm-core                          # 149 tests
 cargo test -p mm-server                        # 21 tests, needs the test DB
 web/build.sh && cargo build -p mm-server
-node e2e/run.mjs > /tmp/e2e.log 2>&1           # 51 tests; write to a file, never pipe into head or tail
+node e2e/run.mjs > /tmp/e2e.log 2>&1           # 52 tests; write to a file, never pipe into head or tail
 LIMIT=90000 node e2e/scan.mjs                  # real receipts in samples/receipts, prints scores only
 SHOW=1 ...                                     # also prints recognized lines (sets localStorage.mmDebug)
 docker compose up --build -d                   # whole app on http://localhost:8080 (use localhost, not 127.0.0.1)

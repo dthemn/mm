@@ -69,6 +69,9 @@ pub struct Ctx {
     need_passkey: RwSignal<bool>,
     last_active: StoredValue<f64>,
     hidden_at: StoredValue<Option<f64>>,
+    /// While the user chose to stay signed in: when the passkey is needed again. Idle and background time
+    /// do not lock before that.
+    keep_until: StoredValue<Option<f64>>,
 }
 
 pub fn today() -> Date {
@@ -92,6 +95,12 @@ fn lock(c: Ctx) {
             let _ = s.store.close().await;
         });
     }
+    // Locking ends staying signed in: the kept key copy is deleted.
+    c.keep_until.set_value(None);
+    device::set_keep_flag(None);
+    spawn_local(async {
+        let _ = flows::forget_kept().await;
+    });
     c.data.set(Data::default());
     c.draft.set_value(None);
     c.phrase.set_value(None);
@@ -147,7 +156,34 @@ pub async fn run_sync(c: Ctx) {
     reload(c, &s).await;
 }
 
+/// The end of staying signed in for a sign-in now, by this device's setting.
+fn keep_from_now() -> Option<f64> {
+    let m = device::keep_minutes();
+    (m > 1).then(|| now() + f64::from(m) * 60_000.0)
+}
+
+/// Keeps the key on this device until `until`, or stops keeping it.
+pub fn set_keep(c: Ctx, until: Option<f64>) {
+    c.keep_until.set_value(until);
+    device::set_keep_flag(until);
+    c.last_active.set_value(now());
+    if let Some(s) = c.session.get_untracked() {
+        spawn_local(async move {
+            if let Err(e) = flows::keep(&s, until).await {
+                c.error.set(format!("Could not keep the sign-in on this device: {e}"));
+            }
+        });
+    }
+}
+
 async fn enter(c: Ctx, s: Session) {
+    let until = keep_from_now();
+    c.session.set(Some(s.clone()));
+    set_keep(c, until);
+    open_session(c, s).await;
+}
+
+async fn open_session(c: Ctx, s: Session) {
     c.last_active.set_value(now());
     c.session.set(Some(s.clone()));
     c.error.set(String::new());
@@ -190,9 +226,11 @@ fn watchers(c: Ctx) {
         if doc.visibility_state() == web_sys::VisibilityState::Hidden {
             c.hidden_at.set_value(Some(now()));
         } else {
-            if c.hidden_at.get_value().is_some_and(|t| now() - t > HIDDEN_MS)
-                && c.session.with_untracked(Option::is_some)
-            {
+            let expired = match c.keep_until.get_value() {
+                Some(u) => now() > u,
+                None => c.hidden_at.get_value().is_some_and(|t| now() - t > HIDDEN_MS),
+            };
+            if expired && c.session.with_untracked(Option::is_some) {
                 lock(c);
             }
             c.hidden_at.set_value(None);
@@ -205,7 +243,11 @@ fn watchers(c: Ctx) {
 
     let tick = Closure::<dyn FnMut()>::new(move || {
         if c.session.with_untracked(Option::is_some) {
-            if now() - c.last_active.get_value() > IDLE_MS {
+            let expired = match c.keep_until.get_value() {
+                Some(u) => now() > u,
+                None => now() - c.last_active.get_value() > IDLE_MS,
+            };
+            if expired {
                 lock(c);
             } else {
                 spawn_local(run_sync(c));
@@ -237,6 +279,7 @@ pub fn App() -> impl IntoView {
         need_passkey: RwSignal::new(false),
         last_active: StoredValue::new(now()),
         hidden_at: StoredValue::new(None),
+        keep_until: StoredValue::new(None),
     };
     watchers(c);
     let secure = web_sys::window().is_some_and(|w| w.is_secure_context());
@@ -251,6 +294,15 @@ pub fn App() -> impl IntoView {
             Ok(kv) => device::users(&kv).await.map(|u| !u.is_empty()).unwrap_or(false),
             Err(_) => false,
         };
+        if known {
+            // Still within the time the user chose to stay signed in: no passkey needed.
+            if let Ok(Some((s, until))) = flows::resume(now()).await {
+                c.session.set(Some(s.clone()));
+                c.keep_until.set_value(Some(until));
+                open_session(c, s).await;
+                return;
+            }
+        }
         c.screen.set(if known { Screen::Locked } else { Screen::Welcome });
     });
 
@@ -469,6 +521,28 @@ fn phrase_entry(c: Ctx, remember: bool) -> impl IntoView {
     }
 }
 
+fn stay_signed_in(c: Ctx) -> impl IntoView {
+    let chosen = RwSignal::new(device::keep_minutes());
+    let pick = move |m: u32| {
+        device::set_keep_minutes(m);
+        chosen.set(m);
+        set_keep(c, keep_from_now());
+    };
+    view! {
+        <h2>"Stay signed in"</h2>
+        <div class="segmented">
+            {device::KEEP_CHOICES.into_iter().map(|(m, label)| view! {
+                <button data-test=format!("keep-{m}") class:active=move || chosen.get() == m on:click=move |_| pick(m)>{label}</button>
+            }).collect_view()}
+        </div>
+        <p class="hint" data-test="keep-note">{move || if chosen.get() > 1 {
+            "The passkey is asked again after this time, or when you lock. Anyone holding this phone unlocked until then can open the app."
+        } else {
+            "The app locks after 1 minute in the background or 5 minutes without a tap."
+        }}</p>
+    }
+}
+
 fn settings(c: Ctx) -> impl IntoView {
     let phrase_text = RwSignal::new(String::new());
     let done = RwSignal::new(String::new());
@@ -508,6 +582,7 @@ fn settings(c: Ctx) -> impl IntoView {
         </header>
         <p data-test="prf-status">{move || if prf() { "Passkey encryption: on" } else { "Passkey encryption: off, the key is stored on this device" }}</p>
         <button data-test="lock" on:click=move |_| lock(c)>"Lock"</button>
+        {stay_signed_in(c)}
         {finance::appearance(c)}
         <h2>"Data"</h2>
         <button data-test="manage-categories" on:click=move |_| c.screen.set(Screen::Manage(finance::Manage::Categories))>"Categories"</button>

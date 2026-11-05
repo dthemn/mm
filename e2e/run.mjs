@@ -77,6 +77,8 @@ class Device {
     d.auth = authenticatorId;
     await d.page.goto(ORIGIN, { waitUntil: "load" });
     await d.page.waitForSelector(q("app"));
+    // Most tests check locking, so test devices start with the shortest "stay signed in".
+    await d.page.evaluate(() => localStorage.setItem("mmKeep", "1"));
     return d;
   }
 
@@ -425,6 +427,39 @@ await test("a deletion reaches the second device", async () => {
   await tablet.ops();
   await tablet.page.waitForSelector(q("tx-row"));
   await tablet.page.waitForFunction((s) => ![...document.querySelectorAll(s)].some((e) => e.textContent === "offline record"), { timeout: 10000 }, q("tx-title"));
+});
+
+await test("staying signed in: a reload needs no passkey until the time is up or the app is locked", async () => {
+  await phone.click("nav-settings");
+  await phone.click("keep-720");
+  await phone.page.waitForFunction((s) => document.querySelector(s)?.classList.contains("active"), {}, q("keep-720"));
+  await phone.page.waitForFunction(async () => {
+    const db = await new Promise((ok) => { const r = indexedDB.open("mm-device"); r.onsuccess = () => ok(r.result); });
+    const keys = await new Promise((ok) => { const r = db.transaction("kv").objectStore("kv").getAllKeys(); r.onsuccess = () => ok(r.result); });
+    db.close();
+    return keys.some((k) => String(k).startsWith("keep:"));
+  });
+  await phone.page.reload({ waitUntil: "load" });
+  await phone.waitNote(CANARY);
+  ok(!(await phone.page.$(q("login"))), "no passkey asked after a reload");
+  // Lock ends it.
+  await phone.lock();
+  await phone.page.reload({ waitUntil: "load" });
+  await phone.page.waitForSelector(q("login"));
+  await phone.login();
+  await phone.waitNote(CANARY);
+  // Background time does not lock within the 12 hours, the end of them does.
+  await phone.page.evaluate(() => { const real = Date.now; Date.now = () => real.call(Date) + 2 * 60 * 60 * 1000; });
+  await phone.page.evaluate(() => new Promise((r) => setTimeout(r, 31000)));
+  ok(!(await phone.page.$(q("login"))), "still open after two idle hours");
+  await phone.page.evaluate(() => { const real = Date.now; Date.now = () => real.call(Date) + 11 * 60 * 60 * 1000; });
+  await phone.page.waitForSelector(q("login"), { timeout: 40000 });
+  await phone.page.reload({ waitUntil: "load" });
+  await phone.page.waitForSelector(q("login"));
+  await phone.login();
+  await phone.waitNote(CANARY);
+  await phone.click("nav-settings");
+  await phone.click("keep-1");
 });
 
 await test("idle timeout locks the app and clears the data", async () => {

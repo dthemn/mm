@@ -119,7 +119,7 @@ Internal transfers, recurring payments and deduplication arrive with statement i
 | Malicious dependency | the key in memory | `cargo audit`, `cargo deny`, Cargo.lock, minimal JS | trust in crate authors |
 | Tampered OCR model | hostile input to the parser | SHA-256 pinned in the build (stage 4) | none |
 | Stolen locked phone | local ciphertext | key only in memory, idle lock | with PRF only ciphertext; without PRF weaker (section 2) |
-| Stolen unlocked phone | data until the timeout | lock after 5 minutes idle or 1 minute hidden | a short window |
+| Stolen unlocked phone | data until the timeout | "Stay signed in" (per device, default 12 hours): the passkey is asked again after it, or on Lock; with "1 min", lock after 5 minutes idle or 1 minute hidden | with 12 hours, whoever holds the unlocked phone in that time opens the app |
 | Login brute force | nothing | rate limit, 128-bit phrase | none |
 | Stranger registers | disk space | invite-only registration, invite stored as a hash | none |
 | NBP sees rate requests | IP and period | request quarters, not transaction dates | NBP sees the IP |
