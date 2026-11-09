@@ -1223,6 +1223,20 @@ await test("signing out erases the local copy, server data stays", async () => {
   ok(+sql("SELECT count(*) FROM records", dbName) > 0, "records are still on the server");
 });
 
+await test("the front page says what mm is, shows both themes, the two ways in and the contact", async () => {
+  const p = tablet.page;
+  await p.waitForSelector(q("landing"));
+  if (process.env.SHOT_LANDING) { await p.setViewport({ width: 390, height: 844, deviceScaleFactor: 1 }); await p.$eval("main", (m) => m.scrollTo(0, 0)); await p.screenshot({ path: process.env.SHOT_LANDING, fullPage: false }); await p.$eval("main", (m) => m.scrollTo(0, 820)); await p.screenshot({ path: process.env.SHOT_LANDING + "2.png" }); await p.$eval("main", (m) => m.scrollTo(0, 99999)); await p.screenshot({ path: process.env.SHOT_LANDING + "3.png" }); }
+  ok((await p.title()).includes("expense tracker"), "the title says what it is");
+  const shots = await p.$$eval(`${q("shots")} img`, (a) => Promise.all(a.map((i) => i.decode().then(() => [i.getAttribute("src"), i.naturalWidth]))));
+  eq(shots.map((x) => x[0]), ["/shot-dark.webp", "/shot-light.webp"], "a dark and a light screenshot");
+  ok(shots.every((x) => x[1] === 780), `both load: ${shots}`);
+  eq(await p.$eval(`${q("footer")} a[href^=mailto]`, (e) => e.getAttribute("href")), "mailto:contact@dthem.com", "contact in the footer");
+  await p.click(q("go-login"));
+  await p.waitForSelector(q("login"));
+  await p.goBack().catch(() => {});
+});
+
 await test("a passkey window that never answers can be cancelled and tried again", async () => {
   const d = await Device.open("silent", { presence: false });
   await d.register({ stopAtPasskey: true });

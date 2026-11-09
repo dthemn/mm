@@ -62,6 +62,9 @@ Principles, highest priority first:
 - Home Summary shows rings by category for expenses and income; a tap opens the category. Categories, merchants and
   accounts are receipt cards (`.slipcard`), one row per entry with a badge and its use, opening in place to edit.
   (`.sheet` is the calendar bottom sheet, do not reuse it.)
+- The Welcome screen is the front page for visitors: what mm is, a dark and a light screenshot, Create account and
+  Sign in, footer contact@dthem.com. The screenshots `web/static/shot-*.webp` come from made-up data via `node e2e/shots.mjs`;
+  never replace them with screens of real data.
 - Categories are English: Food, Household, Subscriptions, Transport, Health, Clothing, Entertainment,
   Cafes & restaurants, Other. Built-ins have fixed ids. Merging sets `merged_into` instead of rewriting records.
 
@@ -105,7 +108,7 @@ docker compose -f compose.dev.yml up -d        # throwaway test DB on 127.0.0.1:
 cargo test -p mm-core                          # 158 tests
 cargo test -p mm-server                        # 21 tests, needs the test DB
 web/build.sh && cargo build -p mm-server
-node e2e/run.mjs > /tmp/e2e.log 2>&1           # 56 tests; write to a file, never pipe into head or tail
+node e2e/run.mjs > /tmp/e2e.log 2>&1           # 57 tests; write to a file, never pipe into head or tail
 LIMIT=90000 node e2e/scan.mjs                  # real receipts in samples/receipts, prints scores only
 SHOW=1 ...                                     # also prints recognized lines (sets localStorage.mmDebug)
 docker compose up --build -d                   # whole app on http://localhost:8080 (use localhost, not 127.0.0.1)

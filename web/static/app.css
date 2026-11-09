@@ -302,3 +302,31 @@ details[open] > summary .chev { transform: rotate(90deg); }
 .ring-card .donut { width: min(60vw, 220px); }
 .pie-row .chev { margin-left: -4px; }
 .pie-row .num.income { color: var(--income); }
+
+/* Front page for visitors without an account. */
+.landing { display: flex; flex-direction: column; gap: 18px; }
+.hero { display: flex; flex-direction: column; gap: 12px; padding-top: 8px; }
+.brand { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 14px; letter-spacing: 1px; text-transform: uppercase; }
+.logo { font-weight: 800; font-size: 20px; letter-spacing: 0; text-transform: none; padding: 2px 10px; border-radius: 8px; background: var(--accent); color: var(--on-accent); }
+.hero h1 { font-size: clamp(28px, 8.5vw, 38px); line-height: 1.1; margin: 4px 0 0; }
+.lead { color: var(--muted); font-size: 16px; }
+.cta { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.shots { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; padding: 6px 4px 18px; }
+.shots figure { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.shots figure:nth-child(2) { transform: translateY(18px); }
+.shots img { width: 100%; height: auto; border-radius: 18px; border: 1px solid var(--line); box-shadow: 0 10px 30px rgba(0, 0, 0, .28); }
+.shots figcaption { color: var(--muted); font-size: 13px; }
+.receipt { gap: 6px; padding-left: 16px; padding-right: 16px; }
+.receipt-head { text-align: center; text-transform: uppercase; letter-spacing: 2px; font-size: 13px; color: var(--paper-muted);
+  padding-bottom: 6px; border-bottom: 1px dashed var(--paper-muted); }
+.receipt-lines { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
+.receipt-lines .num { color: var(--paper-muted); flex: none; }
+.receipt .line.total { border-top: 1px dashed var(--paper-muted); padding: 8px 0 0; font-size: 15px; text-transform: uppercase; }
+.receipt .line.total strong { font-size: 15px; }
+.steps { margin: 0; padding: 0; list-style: none; counter-reset: step; display: flex; flex-direction: column; }
+.steps li { counter-increment: step; display: grid; grid-template-columns: 34px 1fr; column-gap: 10px; padding: 12px 0; border-bottom: 1px dashed var(--line); }
+.steps li::before { content: counter(step); grid-row: span 2; width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center;
+  justify-content: center; font-weight: 800; font-size: 14px; background: var(--fg); color: var(--bg); }
+.foot { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 20px 0 8px; border-top: 1px dashed var(--rule); margin-top: 8px; }
+.foot a { color: var(--accent); text-decoration: none; }
+.foot > a { font-weight: 700; }

@@ -347,12 +347,61 @@ fn insecure() -> impl IntoView {
     }
 }
 
+/// The front page for someone without an account on this device: what mm is, how it looks, and the two ways in.
 fn welcome(c: Ctx) -> impl IntoView {
+    let register = move |_| c.screen.set(Screen::Invite);
+    let login = move |_| c.screen.set(Screen::Locked);
+    let features = [
+        ("Photo to saved receipt", "3 taps"),
+        ("Text recognition", "on phone"),
+        ("Lines by category", "automatic"),
+        ("Bank CSV import", "no doubles"),
+        ("Charts, search", "any item"),
+        ("Family members", "own keys"),
+    ];
+    let lines = features.into_iter().map(|(k, v)| view! { <li class="line"><span>{k}</span><span class="num">{v}</span></li> }).collect_view();
     view! {
-        <h1>"mm"</h1>
-        <p>"Personal expense tracking. The server sees only encrypted data."</p>
-        <button class="primary" data-test="go-register" on:click=move |_| c.screen.set(Screen::Invite)>"Create account"</button>
-        <button data-test="go-login" on:click=move |_| c.screen.set(Screen::Locked)>"I already have an account"</button>
+        <section class="landing" data-test="landing">
+            <header class="hero">
+                <p class="brand"><span class="logo">"mm"</span>"family money"</p>
+                <h1>"Every złoty, kept like a receipt."</h1>
+                <p class="lead">"A family tracker for spending and income in Poland. Photograph a receipt and your phone reads it. Your data is encrypted before it leaves the device."</p>
+                <div class="cta">
+                    <button class="primary" data-test="go-register" on:click=register>"Create account"</button>
+                    <button data-test="go-login" on:click=login>"Sign in"</button>
+                </div>
+                <p class="hint center">"New accounts need an invite."</p>
+            </header>
+            <div class="shots" data-test="shots">
+                <figure>
+                    <img src="/shot-dark.webp" width="390" height="844" alt="Home in the dark theme: spent and income for the month, then operations by day" />
+                    <figcaption>"Dark"</figcaption>
+                </figure>
+                <figure>
+                    <img src="/shot-light.webp" width="390" height="844" alt="Stats in the light theme: a ring of spending by category with shares" />
+                    <figcaption>"Light"</figcaption>
+                </figure>
+            </div>
+            <div class="slip receipt">
+                <p class="receipt-head">"What you get"</p>
+                <ul class="receipt-lines">{lines}</ul>
+                <p class="line total"><span>"Server sees"</span><strong>"ciphertext"</strong></p>
+            </div>
+            <h2>"How it works"</h2>
+            <ol class="steps">
+                <li><strong>"Create an account"</strong><span class="hint">"With an invite and a passkey: Face ID, a fingerprint or the device code. Write down 12 backup words."</span></li>
+                <li><strong>"Add what you spend"</strong><span class="hint">"A receipt photo, a bank statement, or by hand. The app finds the shop, date, total and every line."</span></li>
+                <li><strong>"See where it goes"</strong><span class="hint">"By day, month and category, with a search for any item you bought."</span></li>
+            </ol>
+            <div class="cta">
+                <button class="primary" on:click=register>"Create account"</button>
+                <button on:click=login>"Sign in"</button>
+            </div>
+            <footer class="foot" data-test="footer">
+                <a href="mailto:contact@dthem.com">"contact@dthem.com"</a>
+                <span class="hint">"mm · open source · "<a href="https://github.com/dthemn/mm" rel="noopener">"GitHub"</a></span>
+            </footer>
+        </section>
     }
 }
 
