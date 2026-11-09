@@ -249,6 +249,8 @@ pub fn welcome(c: Ctx) -> impl IntoView {
         let lines = t.features.iter().map(|(k, v)| view! { <li class="line"><span>{*k}</span><span class="num">{*v}</span></li> }).collect_view();
         let steps = t.steps.iter().map(|(k, v)| view! { <li><strong>{*k}</strong><span class="hint">{*v}</span></li> }).collect_view();
         view! {
+            <div class="hero">
+            <div class="hero-text">
             <h1 data-test="headline">{t.headline}</h1>
             <div class="pills" data-test="pills">
                 <a class="pill" href=REPO rel="noopener">{icon(Icon::Code)}{t.pill_open}</a>
@@ -258,6 +260,7 @@ pub fn welcome(c: Ctx) -> impl IntoView {
             <div class="cta">
                 <button class="primary" data-test="go-register" on:click=register>{t.create}</button>
                 <button data-test="go-login" on:click=login>{t.sign_in}</button>
+            </div>
             </div>
             <div class="shots" data-test="shots">
                 <figure>
@@ -269,19 +272,24 @@ pub fn welcome(c: Ctx) -> impl IntoView {
                     <figcaption>{t.light}</figcaption>
                 </figure>
             </div>
+            </div>
+            <div class="more">
             <div class="slip receipt">
                 <p class="receipt-head">{t.get}</p>
                 <ul class="receipt-lines">{lines}</ul>
                 <p class="line total"><span>{t.sees.0}</span><strong>{t.sees.1}</strong></p>
             </div>
-            <h2>{t.how}</h2>
-            <ol class="steps">{steps}</ol>
+            <div class="how">
+                <h2>{t.how}</h2>
+                <ol class="steps">{steps}</ol>
+            </div>
+            </div>
             <section class="host" id="self-host" data-test="self-host">
                 <h2>{icon(Icon::Server)}{t.host_title}</h2>
                 <p class="hint">{t.host_intro}</p>
                 <a class="guide" href=GUIDE rel="noopener" data-test="host-guide">{t.host_guide}" →"</a>
             </section>
-            <div class="cta">
+            <div class="cta again">
                 <button class="primary" on:click=register>{t.create}</button>
                 <button on:click=login>{t.sign_in}</button>
             </div>

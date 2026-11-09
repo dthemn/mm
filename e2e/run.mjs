@@ -1207,6 +1207,52 @@ await test("the layout fits 320 px with nothing cut off", async () => {
   await fin.page.setViewport({ width: 390, height: 844, deviceScaleFactor: 2 });
 });
 
+await test("tablets and laptops get the desktop layout, phones keep the tab bar even turned sideways", async () => {
+  const p = fin.page;
+  const layout = () => p.evaluate(() => {
+    const bar = document.querySelector(".tabs").getBoundingClientRect();
+    const main = document.querySelector("main").getBoundingClientRect();
+    const scan = document.querySelector(".tabs .photo span");
+    return { side: bar.left === 0 && bar.right <= main.left && Math.round(bar.height) === innerHeight,
+      bottom: Math.round(bar.bottom) === innerHeight && bar.width === innerWidth,
+      label: getComputedStyle(scan).display !== "none", over: document.documentElement.scrollWidth - innerWidth };
+  });
+  for (const [width, height, name] of [[1280, 800, "laptop"], [820, 1180, "tablet"]]) {
+    await p.setViewport({ width, height, deviceScaleFactor: 1 });
+    for (const screen of ["nav-dashboard", "nav-stats", "nav-add", "nav-settings"]) {
+      await fin.click(screen);
+      await sleep(100);
+      const l = await layout();
+      ok(l.side && !l.bottom, `${name}: a sidebar on ${screen}`);
+      ok(l.label, `${name}: Scan has its label`);
+      eq(l.over, 0, `${name}: no horizontal overflow on ${screen}`);
+    }
+  }
+  // The ring and its list sit side by side on a laptop.
+  await p.setViewport({ width: 1280, height: 800, deviceScaleFactor: 1 });
+  await fin.click("nav-stats");
+  await p.waitForSelector(".pie-panel .donut");
+  const pie = await p.evaluate(() => [".pie-panel .donut", ".pie-panel .pie-list"].map((s) => { const r = document.querySelector(s).getBoundingClientRect(); return { left: r.left, right: r.right }; }));
+  ok(pie[1].left >= pie[0].right, `the list beside the ring: ${JSON.stringify(pie)}`);
+  // A phone turned sideways is wide but short: still the phone layout.
+  await p.setViewport({ width: 844, height: 390, deviceScaleFactor: 2 });
+  const sideways = await layout();
+  ok(sideways.bottom && !sideways.side && !sideways.label, "phone sideways keeps the bottom tab bar");
+  await p.setViewport({ width: 390, height: 844, deviceScaleFactor: 2 });
+  ok((await layout()).bottom, "phone keeps the bottom tab bar");
+  await fin.click("nav-dashboard");
+
+  // The front page on a laptop: the text and buttons beside the screenshots.
+  const v = await (await browser.createBrowserContext()).newPage();
+  await v.setViewport({ width: 1280, height: 800 });
+  await v.goto(ORIGIN, { waitUntil: "load" });
+  await v.waitForSelector(q("landing"));
+  const [h, shots] = await v.evaluate((a, b) => [a, b].map((s) => { const r = document.querySelector(s).getBoundingClientRect(); return { left: r.left, right: r.right, top: r.top }; }), q("headline"), q("shots"));
+  ok(shots.left >= h.right && shots.top < 400, "screenshots beside the headline");
+  ok(await v.$eval(q("go-register"), (e) => e.getBoundingClientRect().bottom < innerHeight), "Sign up visible without scrolling");
+  await v.close();
+});
+
 await test("signing out erases the local copy, server data stays", async () => {
   await tablet.page.reload({ waitUntil: "load" });
   await tablet.login();

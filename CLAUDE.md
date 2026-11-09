@@ -69,6 +69,11 @@ Principles, highest priority first:
   (the owner wants no install steps on the page). The front page for visitors shows what mm is, a dark and a light screenshot, Create account and
   Sign in, footer contact@dthem.com. The screenshots `web/static/shot-*.webp` come from made-up data via `node e2e/shots.mjs`;
   never replace them with screens of real data.
+- Wide screens (at least 768 × 540 px: tablets and laptops) get the desktop layout from one media query in `app.css`:
+  the tab bar becomes a left sidebar with the name and a labeled Scan button, content widens to 920 px, the calendar
+  opens as a centered dialog, and from 1100 px the ring sits beside its list. The front page puts text and buttons beside
+  the screenshots. Phones, even turned sideways (short), keep the bottom tab bar. `node e2e/preview.mjs` (WIDTH, HEIGHT,
+  OUT) screenshots every main screen from made-up data; `e2e/demo.mjs` holds the setup it shares with shots.mjs.
 - Categories are English: Food, Household, Subscriptions, Transport, Health, Clothing, Entertainment,
   Cafes & restaurants, Other. Built-ins have fixed ids. Merging sets `merged_into` instead of rewriting records.
 
@@ -112,7 +117,7 @@ docker compose -f compose.dev.yml up -d        # throwaway test DB on 127.0.0.1:
 cargo test -p mm-core                          # 158 tests
 cargo test -p mm-server                        # 21 tests, needs the test DB
 web/build.sh && cargo build -p mm-server
-node e2e/run.mjs > /tmp/e2e.log 2>&1           # 57 tests; write to a file, never pipe into head or tail
+node e2e/run.mjs > /tmp/e2e.log 2>&1           # 58 tests; write to a file, never pipe into head or tail
 LIMIT=90000 node e2e/scan.mjs                  # real receipts in samples/receipts, prints scores only
 SHOW=1 ...                                     # also prints recognized lines (sets localStorage.mmDebug)
 docker compose up --build -d                   # whole app on http://localhost:8080 (use localhost, not 127.0.0.1)

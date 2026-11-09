@@ -131,13 +131,14 @@ pub fn nav(c: Ctx) -> impl IntoView {
     };
     view! {
         <nav class="tabs">
+            <span class="side-brand" aria-hidden="true">"Money manager ("<span class="logo">"mm"</span>")"</span>
             <button data-test="nav-dashboard" aria-label="Home" class:active=on(Screen::Dashboard) on:click=move |_| go(Screen::Dashboard)>
                 {icon(Icon::Home)}<span>"Home"</span>
             </button>
             <button data-test="nav-stats" aria-label="Stats" class:active=on(Screen::Stats) on:click=move |_| go(Screen::Stats)>
                 {icon(Icon::Stats)}<span>"Stats"</span>
             </button>
-            <button class="photo" data-test="nav-photo" aria-label="Scan a receipt" on:click=move |_| go(Screen::Scan)>{icon(Icon::Camera)}</button>
+            <button class="photo" data-test="nav-photo" aria-label="Scan a receipt" on:click=move |_| go(Screen::Scan)>{icon(Icon::Camera)}<span>"Scan a receipt"</span></button>
             <button data-test="nav-add" aria-label="Add" on:click=move |_| go(Screen::Edit(None))>
                 {icon(Icon::Plus)}<span>"Add"</span>
             </button>
@@ -860,14 +861,16 @@ pub fn stats(c: Ctx) -> impl IntoView {
                 view! { <p class="hint" data-test="pie-empty">{if income { "No income in this period." } else { "No spending in this period." }}</p> }.into_any()
             } else {
                 view! {
-                    {donut(&slices, shown_total, if income { "Income" } else { "Spent" }, toggle)}
-                    <p class="hint center">"Tap a category to leave it out of this screen."</p>
-                    <ul class="pie-list">{list}</ul>
-                    {(hidden > 0).then(|| view! {
-                        <button class="dashed" data-test="pie-reset" on:click=move |_| c.filter.excluded.set(vec![])>
-                            {format!("Show all ({hidden} left out)")}
-                        </button>
-                    })}
+                    <div class="pie-panel">
+                        {donut(&slices, shown_total, if income { "Income" } else { "Spent" }, toggle)}
+                        <p class="hint center">"Tap a category to leave it out of this screen."</p>
+                        <ul class="pie-list">{list}</ul>
+                        {(hidden > 0).then(|| view! {
+                            <button class="dashed" data-test="pie-reset" on:click=move |_| c.filter.excluded.set(vec![])>
+                                {format!("Show all ({hidden} left out)")}
+                            </button>
+                        })}
+                    </div>
                 }.into_any()
             }}
             <h2>"Last six months"</h2>

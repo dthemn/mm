@@ -312,7 +312,7 @@ pub fn App() -> impl IntoView {
         }
     });
     view! {
-        <main data-test="app">
+        <main data-test="app" class:wide=move || c.screen.get() == Screen::Welcome class:app=move || c.session.with(Option::is_some)>
             {move || (!c.error.get().is_empty()).then(|| view! { <p class="error" data-test="error">{c.error.get()}</p> })}
             {move || match c.screen.get() {
                 Screen::Loading => view! { <p>"Loading…"</p> }.into_any(),

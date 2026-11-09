@@ -345,3 +345,59 @@ details[open] > summary .chev { transform: rotate(90deg); }
 .host h2 { display: flex; align-items: center; gap: 8px; margin: 0; }
 .host h2 .icon { width: 22px; height: 22px; color: var(--accent); }
 .guide { color: var(--accent); font-weight: 700; text-decoration: none; }
+
+/* Wide screens: tablets and laptops get the desktop layout, phones (even turned sideways) keep the one above. */
+.side-brand, .tabs .photo span { display: none; }
+@media (min-width: 768px) and (min-height: 540px) {
+  body { flex-direction: row; }
+  main { padding: 32px 40px 48px; gap: 14px; }
+  main.app { max-width: 920px; }
+  main.wide { max-width: 1180px; }
+
+  /* The tab bar becomes a sidebar: the name, then Scan, then the screens. */
+  .tabs { order: -1; flex-direction: column; align-items: stretch; justify-content: flex-start; gap: 4px; width: 236px;
+    border-top: 0; border-right: 1px dashed var(--rule); padding: 24px 14px; overflow-y: auto; }
+  .side-brand { display: block; order: -2; padding: 0 10px 18px; color: var(--muted); font-size: 15px; white-space: nowrap; }
+  .tabs button { flex: none; flex-direction: row; justify-content: flex-start; gap: 12px; min-height: 44px; padding: 8px 12px;
+    border-radius: 10px; font-size: 15px; }
+  .tabs button:hover { background: color-mix(in srgb, var(--fg) 6%, transparent); }
+  .tabs button.active { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+  .tabs .photo { order: -1; width: auto; height: auto; min-height: 48px; margin: 0 0 14px; border-radius: 12px; padding: 8px 14px; font-weight: 700; }
+  .tabs .photo:hover { background: var(--accent); filter: brightness(1.08); }
+  .tabs .photo span { display: inline; white-space: nowrap; }
+  .tabs .photo .icon { width: 22px; height: 22px; }
+
+  /* The calendar opens as a dialog in the middle instead of a sheet from the bottom. */
+  .sheet { top: 50%; bottom: auto; left: 50%; right: auto; width: min(460px, 92vw); transform: translate(-50%, -50%);
+    border: 1px dashed var(--rule); border-radius: 16px; max-height: 86vh; }
+
+  .summary { gap: 16px; }
+  .trend { max-height: 300px; }
+
+  /* Front page: text and buttons beside the screenshots, then the receipt beside the steps. */
+  .landing { gap: 28px; }
+  .landing .brand { font-size: 17px; }
+  .hero { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); gap: 48px; align-items: center; }
+  .hero-text { display: flex; flex-direction: column; gap: 22px; }
+  .landing h1 { font-size: clamp(40px, 4.6vw, 60px); letter-spacing: -1px; }
+  .lead { font-size: 18px; max-width: 34em; }
+  .cta { max-width: 460px; }
+  .cta button { min-height: 52px; font-size: 17px; }
+  .shots { gap: 24px; padding: 0 0 24px; max-width: 520px; justify-self: center; }
+  .more { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 48px; align-items: start; }
+  .how h2 { margin-top: 0; }
+  .cta.again { justify-self: center; width: 100%; margin: 0 auto; }
+  .host { padding: 22px 26px; }
+  .langs button:hover, .foot a:hover { color: var(--fg); }
+}
+@media (min-width: 768px) and (max-width: 1023px) and (min-height: 540px) {
+  .tabs { width: 220px; padding: 20px 10px; }
+  main { padding: 28px 28px 40px; }
+}
+/* Laptops: the ring beside its list. On a tablet it stays above the list. */
+@media (min-width: 1100px) and (min-height: 540px) {
+  .pie-panel, .ring-card { display: grid; grid-template-columns: 260px minmax(0, 1fr); column-gap: 36px; align-items: center; }
+  .pie-panel > .donut, .ring-card > .donut { grid-row: 1 / span 4; width: 260px; margin: 0; }
+  .pie-panel > :not(.donut), .ring-card > :not(.donut) { grid-column: 2; }
+  .pie-panel > .hint { text-align: left; }
+}
