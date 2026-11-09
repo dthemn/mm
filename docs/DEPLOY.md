@@ -28,7 +28,7 @@ RP_ID=quiet-river-1234.trycloudflare.com ORIGIN=https://quiet-river-1234.tryclou
 
 Limits: the address changes each time `cloudflared` starts, and a passkey made for one address does not work
 on the next. Cloudflare carries the traffic, which it can see only as ciphertext, and anyone with the address
-reaches the login page, though registration still needs an invite. Use it for testing, then deploy as below.
+can create an account there. Use it for testing, then deploy as below.
 
 ## A fixed test address on your own computer (Cloudflare Tunnel)
 
@@ -46,10 +46,9 @@ Cloudflare's name servers (add it at dash.cloudflare.com first, if it is not the
    ```sh
    cp .env.example .env     # then fill in TUNNEL_TOKEN, RP_ID and ORIGIN with your hostname
    docker compose up --build -d
-   docker compose exec app mm-server invite
    ```
 
-4. Open the address on the phone, choose **Create account** and paste the invite.
+4. Open the address on the phone and choose **Sign up**.
 
 To update after `git pull`, run `docker compose up --build -d` again: accounts, passkeys and data stay.
 Never run `docker compose down -v`, which deletes the database volume. Keep `RP_ID` the same: passkeys belong to
@@ -108,13 +107,8 @@ docker compose -f deploy/compose.yml --env-file deploy/.env logs -f
 
 ## 5. Create an account
 
-Each person needs their own invite. Create one per family member:
-
-```sh
-docker compose -f deploy/compose.yml --env-file deploy/.env exec app mm-server invite
-```
-
-Open `https://your-domain` on your phone, choose **Create account**, and paste the invite.
+Open `https://your-domain` on your phone and choose **Sign up**. Each person creates their own account.
+Registration is open: anyone who can reach your address can create an account and store encrypted data there.
 Write down the 12 words on paper: without them and the passkey, the data cannot be recovered.
 
 To install the app on the home screen:

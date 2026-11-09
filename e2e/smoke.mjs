@@ -1,5 +1,5 @@
 // Checks a running deployment in Chrome with a virtual passkey:
-// INVITE=<code> node e2e/smoke.mjs [origin]
+// node e2e/smoke.mjs [origin]
 import puppeteer from "puppeteer-core";
 
 const ORIGIN = process.argv[2] ?? "http://localhost:8080";
@@ -37,9 +37,8 @@ const hasNote = async () => {
 try {
   await page.goto(ORIGIN, { waitUntil: "load" });
   await click("go-register");
-  await type("invite", process.env.INVITE);
   await type("label", "smoke");
-  await click("invite-next");
+  await click("new-next");
   await click("accept");
   await click("warning-next");
   await page.waitForSelector(q("words"));

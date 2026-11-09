@@ -16,13 +16,6 @@ async fn main() {
         .connect_with(opts.disable_statement_logging()).await.expect("cannot reach the database");
     mm_server::migrate(&db).await.expect("migrations failed");
 
-    let args: Vec<String> = env::args().skip(1).collect();
-    if args.first().map(String::as_str) == Some("invite") {
-        let days = args.get(1).and_then(|d| d.parse().ok()).unwrap_or(7);
-        println!("{}", mm_server::invite::create(&db, days).await.expect("could not create invite"));
-        return;
-    }
-
     let cfg = mm_server::Config {
         rp_id: var("RP_ID"),
         origin: var("ORIGIN"),

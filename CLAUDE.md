@@ -65,8 +65,8 @@ Principles, highest priority first:
 - The app is named "Money manager (mm)". The Welcome screen (`web/src/landing.rs`) is the only translated page: EN, PL, RU, UK,
   picked from `localStorage.mmLang` or the browser; the language links sit under the footer. The owner wants no "family"
   wording on the page or in the README: say money manager or financial tracker.
-  The page highlights "Open source · MIT" and "Self-hosted" and has a short self-hosting section whose commands
-  (`HOST_COMMANDS` in `landing.rs`) must stay in step with docs/DEPLOY.md. The front page for visitors shows what mm is, a dark and a light screenshot, Create account and
+  The page highlights "Open source · MIT" and "Self-hosted"; its self-hosting block only links to docs/DEPLOY.md
+  (the owner wants no install steps on the page). The front page for visitors shows what mm is, a dark and a light screenshot, Create account and
   Sign in, footer contact@dthem.com. The screenshots `web/static/shot-*.webp` come from made-up data via `node e2e/shots.mjs`;
   never replace them with screens of real data.
 - Categories are English: Food, Household, Subscriptions, Transport, Health, Clothing, Entertainment,
@@ -96,7 +96,7 @@ to home screen and OCR speed on a mid-range Android are still unverified. No VPS
 
 - `core/` money, dates, models, analytics, export, crypto, sync, `vision` (photo prep), `ocr` (model I/O),
   `receipt` (Polish fiscal receipt parser), `categorize`. Tested natively, no browser.
-- `server/` Axum, sqlx, PostgreSQL. Stores ciphertext only. `mm-server invite` creates an invite.
+- `server/` Axum, sqlx, PostgreSQL. Stores ciphertext only. Registration is open (no invites since 2026-11-09).
 - `web/` Leptos CSR. `app.rs` auth shell, `finance.rs` screens (Home lists operations by day, Stats holds the charts,
   `Screen::Tx` shows one operation with its receipt lines), `scan.rs` camera and OCR, `data.rs` decrypted cache.
   `web/build.sh` builds `web/dist` with SRI; `web/ocr-assets.sh` downloads the recognizer and checks pinned hashes.
@@ -136,7 +136,6 @@ Gotchas learned the hard way:
 - ONNX Runtime Web reserves 4 GB of shared wasm memory, which phones refuse ("RangeError: Out of memory").
   `web/build.sh` lowers the maximum to 1 GB; receipts need between 256 and 512 MB. The OCR cache in `sw.js` is named
   after the recognizer files' hash, so a changed file reaches phones that cached the old one.
-- An invite is deleted when registration finishes, and checked on the invite step via `/api/auth/invite/check`.
 
 ## Data and privacy rules
 

@@ -38,7 +38,6 @@ const startServer = async () => {
   }
   throw new Error("server did not start");
 };
-const invite = () => execFileSync(bin, ["invite"], { env }).toString().trim();
 
 process.on("exit", () => { try { server.kill(); } catch {} });
 for (const sig of ["SIGINT", "SIGTERM"]) process.on(sig, () => process.exit(1));
@@ -166,12 +165,10 @@ class Device {
     if (!ok) throw new Error(`no option ${label} in ${t}`);
   }
 
-  async register({ stopAtPasskey = false, code = invite() } = {}) {
-    this.invite = code;
+  async register({ stopAtPasskey = false } = {}) {
     await this.click("go-register");
-    await this.type("invite", code);
     await this.type("label", this.name);
-    await this.click("invite-next");
+    await this.click("new-next");
     await this.click("accept");
     await this.click("warning-next");
     await this.page.waitForSelector(q("words"));
@@ -262,8 +259,7 @@ await test("registration with PRF: phrase, confirmation, passkey", async () => {
 await test("wrong words fail the confirmation", async () => {
   const d = await Device.open("wrong");
   await d.click("go-register");
-  await d.type("invite", invite());
-  await d.click("invite-next");
+  await d.click("new-next");
   await d.click("accept");
   await d.click("warning-next");
   await d.click("phrase-next");
@@ -1235,8 +1231,8 @@ await test("the front page says what mm is, shows both themes, the two ways in a
   // Open source and self-hosted stand out at the top, and the page explains how to run it on one's own server.
   const pills = await p.$$eval(`${q("pills")} a`, (a) => a.map((e) => [e.textContent, e.getAttribute("href")]));
   eq(pills, [["Open source · MIT", "https://github.com/dthemn/mm"], ["Self-hosted", "#self-host"]], "two badges");
-  const host = await p.$eval(q("self-host"), (e) => e.textContent);
-  ok(host.includes("git clone https://github.com/dthemn/mm.git") && host.includes("mm-server invite") && host.includes("deploy/compose.yml"), "the commands");
+  ok(!(await p.$(`${q("self-host")} pre`)), "no install commands on the page, only the link");
+  ok(!/invite/i.test(await p.$eval(q("landing"), (e) => e.textContent)), "no invite wording");
   eq(await p.$eval(q("host-guide"), (e) => e.getAttribute("href")), "https://github.com/dthemn/mm/blob/main/docs/DEPLOY.md", "the full guide");
   await p.click(`${q("pills")} a[href="#self-host"]`);
   await p.waitForFunction((s) => { const r = document.querySelector(s).getBoundingClientRect(); return r.top >= 0 && r.top < innerHeight / 2; }, {}, q("self-host"));
@@ -1278,22 +1274,16 @@ await test("a passkey window that never answers can be cancelled and tried again
   await d.close();
 });
 
-await test("an invite works once: it is deleted when the account is created", async () => {
-  const a = await Device.open("first");
+await test("anyone can create an account, without an invite", async () => {
+  const before = +sql("SELECT count(*) FROM users", dbName);
+  const a = await Device.open("open");
+  await a.click("go-register");
+  ok(!(await a.page.$(q("invite"))), "no invite field");
+  await a.page.reload({ waitUntil: "load" });
   await a.register();
-  const code = a.invite;
   await a.close();
-  const b = await Device.open("second");
-  await b.click("go-register");
-  await b.type("invite", code);
-  await b.click("invite-next");
-  await b.page.waitForFunction(() => document.querySelector(".error")?.textContent.includes("already used"));
-  ok(!(await b.page.$(q("accept"))), "the wrong invite does not get past the first step");
-  await b.type("invite", "no-such-invite");
-  await b.click("invite-next");
-  await b.page.waitForFunction(() => document.querySelector(".error")?.textContent.includes("wrong"));
-  await b.close();
-  eq(sql("SELECT count(*) FROM invites WHERE used_at IS NOT NULL", dbName).trim(), "0", "used invites are deleted, not kept");
+  eq(+sql("SELECT count(*) FROM users", dbName), before + 1, "one new account");
+  eq(sql("SELECT count(*) FROM information_schema.tables WHERE table_name = 'invites'", dbName).trim(), "0", "the invites table is gone");
 });
 
 await test("over plain HTTP from another device the app explains instead of failing", async () => {

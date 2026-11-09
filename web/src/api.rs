@@ -61,11 +61,6 @@ pub async fn post<B: Serialize, T: DeserializeOwned>(path: &str, body: &B) -> Re
     parse(call("POST", path, Some(s)).await?).await
 }
 
-pub async fn post_only<B: Serialize>(path: &str, body: &B) -> Result<(), ApiFail> {
-    let body = serde_json::to_string(body).map_err(|_| ApiFail::Status(0, "request".into()))?;
-    call("POST", path, Some(body)).await.map(|_| ())
-}
-
 pub async fn post_empty<T: DeserializeOwned>(path: &str) -> Result<T, ApiFail> {
     parse(call("POST", path, Some("{}".into())).await?).await
 }

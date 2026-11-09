@@ -24,7 +24,7 @@ pub enum Screen {
     /// Opened over plain HTTP from another device: the browser disables what the app needs.
     Insecure,
     Welcome,
-    Invite,
+    NewAccount,
     Warning,
     ShowPhrase,
     ConfirmPhrase,
@@ -63,7 +63,6 @@ pub struct Ctx {
     /// A statement chosen on the Add screen, read by the import screen. Never leaves the device.
     pub upload: StoredValue<Option<(String, Vec<u8>)>, LocalStorage>,
     phrase: StoredValue<Option<Rc<Phrase>>, LocalStorage>,
-    invite: RwSignal<String>,
     label: RwSignal<String>,
     /// A new passkey must be added after recovery.
     need_passkey: RwSignal<bool>,
@@ -274,7 +273,6 @@ pub fn App() -> impl IntoView {
         status: RwSignal::new(String::new()),
         issues: RwSignal::new(vec![]),
         phrase: StoredValue::new_local(None),
-        invite: RwSignal::new(String::new()),
         label: RwSignal::new(String::new()),
         need_passkey: RwSignal::new(false),
         last_active: StoredValue::new(now()),
@@ -320,7 +318,7 @@ pub fn App() -> impl IntoView {
                 Screen::Loading => view! { <p>"Loading…"</p> }.into_any(),
                 Screen::Insecure => insecure().into_any(),
                 Screen::Welcome => crate::landing::welcome(c).into_any(),
-                Screen::Invite => invite(c).into_any(),
+                Screen::NewAccount => new_account(c).into_any(),
                 Screen::Warning => warning(c).into_any(),
                 Screen::ShowPhrase => show_phrase(c).into_any(),
                 Screen::ConfirmPhrase => confirm_phrase(c).into_any(),
@@ -354,25 +352,16 @@ fn insecure() -> impl IntoView {
     }
 }
 
-fn invite(c: Ctx) -> impl IntoView {
-    let next = move |_| busy_task(c, async move {
-        flows::check_invite(&c.invite.get_untracked()).await?;
-        c.screen.set(Screen::Warning);
-        Ok(())
-    });
+fn new_account(c: Ctx) -> impl IntoView {
+    let next = move |_| c.screen.set(Screen::Warning);
     view! {
         <h1>"New account"</h1>
-        <label>"Invite"
-            <input data-test="invite" autocomplete="off" prop:value=move || c.invite.get()
-                on:input=move |e| c.invite.set(event_target_value(&e)) />
-        </label>
         <label>"Name on this device"
             <input data-test="label" autocomplete="off" prop:value=move || c.label.get()
                 on:input=move |e| c.label.set(event_target_value(&e)) />
         </label>
         <p class="hint">"The name is shown only in the passkey list. The server does not store it."</p>
-        <button class="primary" data-test="invite-next" disabled=move || c.busy.get() || c.invite.get().trim().is_empty()
-            on:click=next>"Next"</button>
+        <button class="primary" data-test="new-next" on:click=next>"Next"</button>
         <button on:click=move |_| c.screen.set(Screen::Welcome)>"Back"</button>
     }
 }
@@ -462,9 +451,8 @@ fn waiting(c: Ctx) -> impl IntoView {
 fn passkey(c: Ctx) -> impl IntoView {
     let create = move |_| busy_task(c, async move {
         let phrase = c.phrase.with_value(|p| p.clone()).ok_or("phrase not found")?;
-        let s = flows::register(&c.invite.get_untracked(), &c.label.get_untracked(), &phrase).await?;
+        let s = flows::register(&c.label.get_untracked(), &phrase).await?;
         c.phrase.set_value(None);
-        c.invite.set(String::new());
         enter(c, s).await;
         Ok(())
     });

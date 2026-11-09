@@ -85,8 +85,7 @@ const click = async (t) => {
 
 await page.goto(ORIGIN, { waitUntil: "load" });
 await click("go-register");
-await page.type(q("invite"), execFileSync(bin, ["invite"], { env }).toString().trim());
-await click("invite-next");
+await click("new-next");
 await click("accept");
 await click("warning-next");
 await page.waitForSelector(q("words"));

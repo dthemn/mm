@@ -4,7 +4,7 @@ A money manager for spending and income in złoty, as a mobile web app (PWA) wri
 Photograph a receipt and your phone reads it: the shop, date, total and every line, sorted by category.
 The server only ever stores ciphertext.
 
-**Try it: <https://mm.dthem.com>** (new accounts need an invite).
+**Try it: <https://mm.dthem.com>**
 
 **Open source (MIT) and self-hosted:** run it on your own server with Docker in about 15 minutes, see
 [docs/DEPLOY.md](docs/DEPLOY.md). The database holds only ciphertext either way.
@@ -85,16 +85,10 @@ cd mm
 docker compose up --build -d
 ```
 
-**2. Create an invite.** Registration works only with an invite, and each one can be used once.
-
-```sh
-docker compose exec app mm-server invite
-```
-
-**3. Open <http://localhost:8080>**, choose **Create account** and paste the invite.
+**2. Open <http://localhost:8080>** and choose **Sign up**.
 You will get 12 words to write down, then create a passkey with your device's fingerprint or password.
 
-For a fresh invite, repeat step 2. Useful commands:
+Registration is open: anyone who can reach the address can create an account. Useful commands:
 
 ```sh
 docker compose logs -f app   # server logs, which never contain record contents
@@ -124,7 +118,7 @@ To check that a running app works, using Chrome with a virtual passkey:
 
 ```sh
 (cd e2e && npm install)
-INVITE=$(docker compose exec -T app mm-server invite) node e2e/smoke.mjs
+node e2e/smoke.mjs
 ```
 
 ## Development

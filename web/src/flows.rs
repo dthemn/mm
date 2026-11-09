@@ -39,23 +39,10 @@ async fn prf_after_create(c: &webauthn::Created) -> Result<Option<Vec<u8>>, Stri
     Ok(webauthn::get_assertion(None, Some(&c.raw_id)).await?.prf_output)
 }
 
-pub const BAD_INVITE: &str = "This invite is wrong, already used or expired";
-
-pub async fn check_invite(invite: &str) -> Result<(), String> {
-    api::post_only("/api/auth/invite/check", &InviteCheckReq { invite: invite.trim().into() }).await.map_err(|e| match e {
-        ApiFail::Status(400, _) => BAD_INVITE.to_string(),
-        e => s(e),
-    })
-}
-
-pub async fn register(invite: &str, label: &str, phrase: &Phrase) -> Result<Session, String> {
+pub async fn register(label: &str, phrase: &Phrase) -> Result<Session, String> {
     let start: ChallengeResp = api::post("/api/auth/register/start", &RegisterStartReq {
-        invite: invite.trim().into(),
         label: label.into(),
-    }).await.map_err(|e| match e {
-        ApiFail::Status(400, _) => BAD_INVITE.to_string(),
-        e => s(e),
-    })?;
+    }).await.map_err(s)?;
     let user = start.user_id.ok_or("missing identifier")?;
     let dek = Dek::generate().map_err(s)?;
     let wrapped_dek_phrase = B64(wrap_dek(&phrase.kek(), &dek, user, WrapSlot::Phrase).map_err(s)?);
@@ -67,7 +54,6 @@ pub async fn register(invite: &str, label: &str, phrase: &Phrase) -> Result<Sess
         .transpose()?;
     let _: SessionResp = api::post("/api/auth/register/finish", &RegisterFinishReq {
         challenge_id: start.challenge_id,
-        invite: invite.trim().into(),
         credential: created.credential.clone(),
         wrapped_dek_prf: wrapped_dek_prf.clone().map(B64),
         wrapped_dek_phrase,

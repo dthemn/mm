@@ -1,8 +1,8 @@
-use crate::{State, error::{Error, Result}, invite};
+use crate::{State, error::{Error, Result}};
 use axum::{
     Json,
     extract::{FromRef, FromRequestParts},
-    http::{HeaderValue, StatusCode, header, request::Parts},
+    http::{HeaderValue, header, request::Parts},
     response::{AppendHeaders, IntoResponse},
 };
 use mm_core::{api::*, crypto::{phrase_challenge, verify_phrase_signature}};
@@ -112,20 +112,8 @@ where
     }
 }
 
-async fn invite_valid(app: &crate::App, code: &str) -> Result<()> {
-    sqlx::query("SELECT 1 FROM invites WHERE code_hash = $1 AND used_at IS NULL AND expires_at > now()")
-        .bind(invite::hash(code)).fetch_optional(&app.db).await?
-        .map(|_| ()).ok_or(Error::BadRequest("invite"))
-}
-
-/// Lets the invite step say at once that a code is wrong, used or expired. Rate-limited like login.
-pub async fn invite_check(s: State, Json(q): Json<InviteCheckReq>) -> Result<StatusCode> {
-    invite_valid(&s, &q.invite).await?;
-    Ok(StatusCode::NO_CONTENT)
-}
-
+/// Registration is open to anyone; it is rate-limited like login.
 pub async fn register_start(s: State, Json(q): Json<RegisterStartReq>) -> Result<Json<ChallengeResp>> {
-    invite_valid(&s, &q.invite).await?;
     let label: String = q.label.trim().chars().take(40).collect();
     let label = if label.is_empty() { "mm".to_string() } else { label };
     let user = Uuid::new_v4();
@@ -146,12 +134,6 @@ pub async fn register_finish(s: State, Json(q): Json<RegisterFinishReq>) -> Resu
         .map_err(|_| Error::BadRequest("credential"))?;
 
     let mut tx = s.db.begin().await?;
-    // The invite is deleted in this transaction, so even parallel requests cannot reuse it.
-    let used = sqlx::query("DELETE FROM invites WHERE code_hash = $1 AND used_at IS NULL AND expires_at > now()")
-        .bind(invite::hash(&q.invite)).execute(&mut *tx).await?;
-    if used.rows_affected() != 1 {
-        return Err(Error::BadRequest("invite"));
-    }
     sqlx::query("INSERT INTO users (id, phrase_pub, wrapped_dek_phrase) VALUES ($1,$2,$3)")
         .bind(user).bind(&q.phrase_pub.0).bind(&q.wrapped_dek_phrase.0).execute(&mut *tx).await?;
     sqlx::query("INSERT INTO credentials (cred_id, user_id, passkey, wrapped_dek_prf) VALUES ($1,$2,$3,$4)")

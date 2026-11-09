@@ -22,14 +22,8 @@ impl<'de> Deserialize<'de> for B64 {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct InviteCheckReq {
-    pub invite: String,
-}
-
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct RegisterStartReq {
-    pub invite: String,
     /// Passkey label on the device. Never stored on the server.
     pub label: String,
 }
@@ -46,7 +40,6 @@ pub struct ChallengeResp {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RegisterFinishReq {
     pub challenge_id: Uuid,
-    pub invite: String,
     pub credential: Value,
     pub wrapped_dek_prf: Option<B64>,
     pub wrapped_dek_phrase: B64,

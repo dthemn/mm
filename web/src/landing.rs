@@ -69,7 +69,6 @@ struct Text {
     lead: &'static str,
     create: &'static str,
     sign_in: &'static str,
-    invite: &'static str,
     dark: &'static str,
     light: &'static str,
     dark_alt: &'static str,
@@ -84,17 +83,9 @@ struct Text {
     pill_self: &'static str,
     host_title: &'static str,
     host_intro: &'static str,
-    host_steps: [&'static str; 4],
     host_guide: &'static str,
 }
 
-/// The commands for each self-hosting step, the same in every language (from docs/DEPLOY.md).
-const HOST_COMMANDS: [&str; 4] = [
-    "curl -fsSL https://get.docker.com | sh",
-    "git clone https://github.com/dthemn/mm.git\ncd mm\ncp deploy/.env.example deploy/.env\nsed -i \"s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$(openssl rand -hex 24)/\" deploy/.env\nnano deploy/.env   # DOMAIN=mm.example.com",
-    "docker compose -f deploy/compose.yml --env-file deploy/.env up -d --build",
-    "docker compose -f deploy/compose.yml --env-file deploy/.env exec app mm-server invite",
-];
 const REPO: &str = "https://github.com/dthemn/mm";
 const GUIDE: &str = "https://github.com/dthemn/mm/blob/main/docs/DEPLOY.md";
 
@@ -112,7 +103,6 @@ const EN: Text = Text {
     lead: "A money manager for spending and income. Photograph a receipt and your phone reads it. Your data is encrypted before it leaves the device.",
     create: "Sign up",
     sign_in: "Sign in",
-    invite: "New accounts need an invite.",
     dark: "Dark",
     light: "Light",
     dark_alt: "Home in the dark theme: spent and income for the month, then operations by day",
@@ -129,7 +119,7 @@ const EN: Text = Text {
     sees: ("Server sees", "ciphertext"),
     how: "How it works",
     steps: [
-        ("Create an account", "With an invite and a passkey: Face ID, a fingerprint or the device code. Write down 12 backup words."),
+        ("Create an account", "With a passkey: Face ID, a fingerprint or the device code. Write down 12 backup words."),
         ("Add what you spend", "A receipt photo, a bank statement, or by hand. The app finds the shop, date, total and every line."),
         ("See where it goes", "By day, month and category, with a search for any item you bought."),
     ],
@@ -138,13 +128,7 @@ const EN: Text = Text {
     pill_self: "Self-hosted",
     host_title: "Host it yourself",
     host_intro: "mm is open source under the MIT license. Run it on your own server with Docker: your data stays on a machine you control, and even that server stores only ciphertext.",
-    host_steps: [
-        "A server with Docker and a domain: passkeys and the camera need HTTPS.",
-        "Get the app, then set DOMAIN in deploy/.env. The database password is generated.",
-        "Start it. Caddy gets the certificate itself; the first build takes 10–20 minutes.",
-        "Create an invite for each person, then open your domain on the phone.",
-    ],
-    host_guide: "Full guide on GitHub",
+    host_guide: "Self-hosting guide on GitHub",
 };
 
 const PL: Text = Text {
@@ -152,7 +136,6 @@ const PL: Text = Text {
     lead: "Menedżer finansów: wydatki i przychody w jednym miejscu. Zrób zdjęcie paragonu, a telefon sam go odczyta. Dane są szyfrowane, zanim opuszczą urządzenie.",
     create: "Załóż konto",
     sign_in: "Zaloguj się",
-    invite: "Rejestracja tylko z zaproszeniem.",
     dark: "Ciemny",
     light: "Jasny",
     dark_alt: "Ekran główny w ciemnym motywie: wydatki i przychody w miesiącu, potem operacje według dni",
@@ -169,7 +152,7 @@ const PL: Text = Text {
     sees: ("Serwer widzi", "tylko szyfr"),
     how: "Jak to działa",
     steps: [
-        ("Załóż konto", "Z zaproszeniem i kluczem dostępu (passkey): Face ID, odcisk palca lub kod urządzenia. Zapisz 12 słów zapasowych."),
+        ("Załóż konto", "Z kluczem dostępu (passkey): Face ID, odcisk palca lub kod urządzenia. Zapisz 12 słów zapasowych."),
         ("Dodawaj wydatki", "Zdjęcie paragonu, wyciąg z banku albo ręcznie. Aplikacja znajdzie sklep, datę, sumę i każdą pozycję."),
         ("Zobacz, na co idą pieniądze", "Według dni, miesięcy i kategorii, z wyszukiwaniem dowolnego produktu."),
     ],
@@ -178,13 +161,7 @@ const PL: Text = Text {
     pill_self: "Na własnym serwerze",
     host_title: "Uruchom u siebie",
     host_intro: "mm to otwarty kod na licencji MIT. Uruchom go na własnym serwerze z Dockerem: dane zostają na maszynie, którą kontrolujesz, a nawet ten serwer przechowuje tylko szyfr.",
-    host_steps: [
-        "Serwer z Dockerem i domeną: passkey i aparat wymagają HTTPS.",
-        "Pobierz aplikację i ustaw DOMAIN w deploy/.env. Hasło bazy danych zostanie wygenerowane.",
-        "Uruchom. Caddy sam pobierze certyfikat; pierwsza kompilacja trwa 10–20 minut.",
-        "Utwórz zaproszenie dla każdej osoby i otwórz swoją domenę na telefonie.",
-    ],
-    host_guide: "Pełna instrukcja na GitHubie",
+    host_guide: "Instrukcja instalacji na GitHubie",
 };
 
 const RU: Text = Text {
@@ -192,7 +169,6 @@ const RU: Text = Text {
     lead: "Финансовый трекер расходов и доходов. Сфотографируйте чек — телефон сам его прочитает. Данные шифруются ещё до того, как покинут устройство.",
     create: "Регистрация",
     sign_in: "Войти",
-    invite: "Для регистрации нужно приглашение.",
     dark: "Тёмная",
     light: "Светлая",
     dark_alt: "Главный экран в тёмной теме: расходы и доходы за месяц, затем операции по дням",
@@ -209,7 +185,7 @@ const RU: Text = Text {
     sees: ("Сервер видит", "только шифр"),
     how: "Как это работает",
     steps: [
-        ("Создайте аккаунт", "По приглашению, с passkey: Face ID, отпечаток пальца или код устройства. Запишите 12 резервных слов."),
+        ("Создайте аккаунт", "С passkey: Face ID, отпечаток пальца или код устройства. Запишите 12 резервных слов."),
         ("Добавляйте расходы", "Фото чека, банковская выписка или вручную. Приложение найдёт магазин, дату, сумму и каждую строку."),
         ("Смотрите, куда уходят деньги", "По дням, месяцам и категориям, с поиском любого купленного товара."),
     ],
@@ -218,13 +194,7 @@ const RU: Text = Text {
     pill_self: "На своём сервере",
     host_title: "Установите у себя",
     host_intro: "mm — открытый код под лицензией MIT. Запустите его на своём сервере с Docker: данные остаются на машине, которой управляете вы, и даже этот сервер хранит только шифр.",
-    host_steps: [
-        "Сервер с Docker и доменом: passkey и камере нужен HTTPS.",
-        "Скачайте приложение и укажите DOMAIN в deploy/.env. Пароль базы данных создастся сам.",
-        "Запустите. Caddy сам получит сертификат; первая сборка занимает 10–20 минут.",
-        "Создайте приглашение для каждого человека и откройте свой домен на телефоне.",
-    ],
-    host_guide: "Полная инструкция на GitHub",
+    host_guide: "Инструкция по установке на GitHub",
 };
 
 const UK: Text = Text {
@@ -232,7 +202,6 @@ const UK: Text = Text {
     lead: "Фінансовий трекер витрат і доходів. Сфотографуйте чек — телефон сам його прочитає. Дані шифруються ще до того, як залишать пристрій.",
     create: "Реєстрація",
     sign_in: "Увійти",
-    invite: "Для реєстрації потрібне запрошення.",
     dark: "Темна",
     light: "Світла",
     dark_alt: "Головний екран у темній темі: витрати й доходи за місяць, далі операції за днями",
@@ -249,7 +218,7 @@ const UK: Text = Text {
     sees: ("Сервер бачить", "лише шифр"),
     how: "Як це працює",
     steps: [
-        ("Створіть акаунт", "За запрошенням, з passkey: Face ID, відбиток пальця або код пристрою. Запишіть 12 резервних слів."),
+        ("Створіть акаунт", "З passkey: Face ID, відбиток пальця або код пристрою. Запишіть 12 резервних слів."),
         ("Додавайте витрати", "Фото чека, банківська виписка або вручну. Застосунок знайде магазин, дату, суму й кожен рядок."),
         ("Дивіться, куди йдуть гроші", "За днями, місяцями й категоріями, з пошуком будь-якого купленого товару."),
     ],
@@ -258,13 +227,7 @@ const UK: Text = Text {
     pill_self: "На власному сервері",
     host_title: "Встановіть у себе",
     host_intro: "mm — відкритий код під ліцензією MIT. Запустіть його на власному сервері з Docker: дані залишаються на машині, якою керуєте ви, і навіть цей сервер зберігає лише шифр.",
-    host_steps: [
-        "Сервер з Docker і доменом: passkey і камері потрібен HTTPS.",
-        "Завантажте застосунок і вкажіть DOMAIN у deploy/.env. Пароль бази даних створиться сам.",
-        "Запустіть. Caddy сам отримає сертифікат; перша збірка триває 10–20 хвилин.",
-        "Створіть запрошення для кожної людини й відкрийте свій домен на телефоні.",
-    ],
-    host_guide: "Повна інструкція на GitHub",
+    host_guide: "Інструкція зі встановлення на GitHub",
 };
 
 /// "Money manager (mm)": the app's name wherever it is introduced.
@@ -275,7 +238,7 @@ pub fn brand() -> impl IntoView {
 pub fn welcome(c: Ctx) -> impl IntoView {
     let lang = RwSignal::new(initial());
     remember(lang.get_untracked());
-    let register = move |_| c.screen.set(Screen::Invite);
+    let register = move |_| c.screen.set(Screen::NewAccount);
     let login = move |_| c.screen.set(Screen::Locked);
     let switch = Lang::ALL.into_iter().map(|l| view! {
         <button data-test=format!("lang-{}", l.code()) lang=l.code() class:active=move || lang.get() == l aria-pressed=move || (lang.get() == l).to_string()
@@ -284,9 +247,6 @@ pub fn welcome(c: Ctx) -> impl IntoView {
     let page = move || {
         let t = text(lang.get());
         let lines = t.features.iter().map(|(k, v)| view! { <li class="line"><span>{*k}</span><span class="num">{*v}</span></li> }).collect_view();
-        let host = t.host_steps.iter().zip(HOST_COMMANDS).map(|(k, cmd)| view! {
-            <li><span>{*k}</span><pre><code>{cmd}</code></pre></li>
-        }).collect_view();
         let steps = t.steps.iter().map(|(k, v)| view! { <li><strong>{*k}</strong><span class="hint">{*v}</span></li> }).collect_view();
         view! {
             <h1 data-test="headline">{t.headline}</h1>
@@ -299,7 +259,6 @@ pub fn welcome(c: Ctx) -> impl IntoView {
                 <button class="primary" data-test="go-register" on:click=register>{t.create}</button>
                 <button data-test="go-login" on:click=login>{t.sign_in}</button>
             </div>
-            <p class="hint center">{t.invite}</p>
             <div class="shots" data-test="shots">
                 <figure>
                     <img src="/shot-dark.webp" width="390" height="844" alt=t.dark_alt />
@@ -320,7 +279,6 @@ pub fn welcome(c: Ctx) -> impl IntoView {
             <section class="host" id="self-host" data-test="self-host">
                 <h2>{icon(Icon::Server)}{t.host_title}</h2>
                 <p class="hint">{t.host_intro}</p>
-                <ol class="host-steps">{host}</ol>
                 <a class="guide" href=GUIDE rel="noopener" data-test="host-guide">{t.host_guide}" →"</a>
             </section>
             <div class="cta">

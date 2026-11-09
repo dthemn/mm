@@ -6,7 +6,7 @@ use mm_core::api::*;
 use mm_core::crypto::{Dek, Phrase, WrapSlot, phrase_challenge, unwrap_dek, wrap_dek};
 use mm_core::record::Envelope;
 use mm_core::sync::{Keys, LocalRecord, LocalStore, Remote, Syncer, current, save};
-use mm_server::{Config, CSP, invite, migrate, router};
+use mm_server::{Config, CSP, migrate, router};
 use serde_json::json;
 use sqlx::{Connection, Executor, PgConnection, PgPool, Row, postgres::PgPoolOptions};
 use std::cell::{Cell, RefCell};
@@ -395,32 +395,16 @@ async fn login_rate_limit_applies() {
 }
 
 #[tokio::test]
-async fn registration_requires_a_valid_invite() {
+async fn registration_is_open_and_the_invite_check_is_gone() {
     let c = start().await;
     let http = client();
-    let start = |code: String| {
-        let (h, u) = (http.clone(), c.url.clone());
-        async move {
-            h.post(format!("{u}/api/auth/register/start"))
-                .json(&RegisterStartReq { invite: code, label: "Test".into() }).send().await.unwrap().status()
-        }
-    };
-    assert_eq!(start("no such invite".into()).await, 400);
-    let good = invite::create(&c.db, 1).await.unwrap();
-    assert_eq!(start(good).await, 200);
-    let expired = invite::create(&c.db, -1).await.unwrap();
-    assert_eq!(start(expired.clone()).await, 400);
-
-    let check = |code: String| {
-        let (h, u) = (http.clone(), c.url.clone());
-        async move {
-            h.post(format!("{u}/api/auth/invite/check"))
-                .json(&InviteCheckReq { invite: code }).send().await.unwrap().status()
-        }
-    };
-    assert_eq!(check(invite::create(&c.db, 1).await.unwrap()).await, 204);
-    assert_eq!(check(expired).await, 400);
-    assert_eq!(check("no such invite".into()).await, 400);
+    let r = http.post(format!("{}/api/auth/register/start", c.url))
+        .json(&RegisterStartReq { label: "Test".into() }).send().await.unwrap();
+    assert_eq!(r.status(), 200);
+    let start: ChallengeResp = r.json().await.unwrap();
+    assert!(start.user_id.is_some(), "a new user id comes with the challenge");
+    let gone = http.post(format!("{}/api/auth/invite/check", c.url)).json(&serde_json::json!({ "invite": "x" })).send().await.unwrap();
+    assert!(gone.status().is_client_error(), "no invite endpoint: {}", gone.status());
 }
 
 #[tokio::test]
