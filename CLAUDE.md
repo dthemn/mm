@@ -64,7 +64,9 @@ Principles, highest priority first:
   (`.sheet` is the calendar bottom sheet, do not reuse it.)
 - The app is named "Money manager (mm)". The Welcome screen (`web/src/landing.rs`) is the only translated page: EN, PL, RU, UK,
   picked from `localStorage.mmLang` or the browser; the language links sit under the footer. The owner wants no "family"
-  wording on the page or in the README: say money manager or financial tracker. The front page for visitors shows what mm is, a dark and a light screenshot, Create account and
+  wording on the page or in the README: say money manager or financial tracker.
+  The page highlights "Open source · MIT" and "Self-hosted" and has a short self-hosting section whose commands
+  (`HOST_COMMANDS` in `landing.rs`) must stay in step with docs/DEPLOY.md. The front page for visitors shows what mm is, a dark and a light screenshot, Create account and
   Sign in, footer contact@dthem.com. The screenshots `web/static/shot-*.webp` come from made-up data via `node e2e/shots.mjs`;
   never replace them with screens of real data.
 - Categories are English: Food, Household, Subscriptions, Transport, Health, Clothing, Entertainment,

@@ -31,6 +31,8 @@ pub enum Icon {
     Upload,
     Search,
     Chevron,
+    Code,
+    Server,
 }
 
 fn paths(i: Icon) -> &'static [&'static str] {
@@ -64,6 +66,8 @@ fn paths(i: Icon) -> &'static [&'static str] {
         Icon::Upload => &["M12 15V4", "M8 8l4-4 4 4", "M4 15v4h16v-4"],
         Icon::Search => &["M16.5 10.5a6 6 0 1 1-12 0 6 6 0 0 1 12 0z", "M15 15l5 5"],
         Icon::Chevron => &["M9 6l6 6-6 6"],
+        Icon::Code => &["M8 7l-5 5 5 5", "M16 7l5 5-5 5", "M14 4l-4 16"],
+        Icon::Server => &["M4 4h16v7H4z", "M4 13h16v7H4z", "M8 7.5h.01", "M8 16.5h.01"],
     }
 }
 

@@ -2,6 +2,7 @@
 //! The rest of the app is in English; only this page is translated.
 
 use crate::app::{Ctx, Screen};
+use crate::icons::{Icon, icon};
 use leptos::prelude::*;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -79,7 +80,23 @@ struct Text {
     how: &'static str,
     steps: [(&'static str, &'static str); 3],
     open_source: &'static str,
+    pill_open: &'static str,
+    pill_self: &'static str,
+    host_title: &'static str,
+    host_intro: &'static str,
+    host_steps: [&'static str; 4],
+    host_guide: &'static str,
 }
+
+/// The commands for each self-hosting step, the same in every language (from docs/DEPLOY.md).
+const HOST_COMMANDS: [&str; 4] = [
+    "curl -fsSL https://get.docker.com | sh",
+    "git clone https://github.com/dthemn/mm.git\ncd mm\ncp deploy/.env.example deploy/.env\nsed -i \"s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$(openssl rand -hex 24)/\" deploy/.env\nnano deploy/.env   # DOMAIN=mm.example.com",
+    "docker compose -f deploy/compose.yml --env-file deploy/.env up -d --build",
+    "docker compose -f deploy/compose.yml --env-file deploy/.env exec app mm-server invite",
+];
+const REPO: &str = "https://github.com/dthemn/mm";
+const GUIDE: &str = "https://github.com/dthemn/mm/blob/main/docs/DEPLOY.md";
 
 fn text(l: Lang) -> &'static Text {
     match l {
@@ -117,6 +134,17 @@ const EN: Text = Text {
         ("See where it goes", "By day, month and category, with a search for any item you bought."),
     ],
     open_source: "open source",
+    pill_open: "Open source · MIT",
+    pill_self: "Self-hosted",
+    host_title: "Host it yourself",
+    host_intro: "mm is open source under the MIT license. Run it on your own server with Docker: your data stays on a machine you control, and even that server stores only ciphertext.",
+    host_steps: [
+        "A server with Docker and a domain: passkeys and the camera need HTTPS.",
+        "Get the app, then set DOMAIN in deploy/.env. The database password is generated.",
+        "Start it. Caddy gets the certificate itself; the first build takes 10–20 minutes.",
+        "Create an invite for each person, then open your domain on the phone.",
+    ],
+    host_guide: "Full guide on GitHub",
 };
 
 const PL: Text = Text {
@@ -146,6 +174,17 @@ const PL: Text = Text {
         ("Zobacz, na co idą pieniądze", "Według dni, miesięcy i kategorii, z wyszukiwaniem dowolnego produktu."),
     ],
     open_source: "otwarty kod",
+    pill_open: "Otwarty kod · MIT",
+    pill_self: "Na własnym serwerze",
+    host_title: "Uruchom u siebie",
+    host_intro: "mm to otwarty kod na licencji MIT. Uruchom go na własnym serwerze z Dockerem: dane zostają na maszynie, którą kontrolujesz, a nawet ten serwer przechowuje tylko szyfr.",
+    host_steps: [
+        "Serwer z Dockerem i domeną: passkey i aparat wymagają HTTPS.",
+        "Pobierz aplikację i ustaw DOMAIN w deploy/.env. Hasło bazy danych zostanie wygenerowane.",
+        "Uruchom. Caddy sam pobierze certyfikat; pierwsza kompilacja trwa 10–20 minut.",
+        "Utwórz zaproszenie dla każdej osoby i otwórz swoją domenę na telefonie.",
+    ],
+    host_guide: "Pełna instrukcja na GitHubie",
 };
 
 const RU: Text = Text {
@@ -175,6 +214,17 @@ const RU: Text = Text {
         ("Смотрите, куда уходят деньги", "По дням, месяцам и категориям, с поиском любого купленного товара."),
     ],
     open_source: "открытый код",
+    pill_open: "Открытый код · MIT",
+    pill_self: "На своём сервере",
+    host_title: "Установите у себя",
+    host_intro: "mm — открытый код под лицензией MIT. Запустите его на своём сервере с Docker: данные остаются на машине, которой управляете вы, и даже этот сервер хранит только шифр.",
+    host_steps: [
+        "Сервер с Docker и доменом: passkey и камере нужен HTTPS.",
+        "Скачайте приложение и укажите DOMAIN в deploy/.env. Пароль базы данных создастся сам.",
+        "Запустите. Caddy сам получит сертификат; первая сборка занимает 10–20 минут.",
+        "Создайте приглашение для каждого человека и откройте свой домен на телефоне.",
+    ],
+    host_guide: "Полная инструкция на GitHub",
 };
 
 const UK: Text = Text {
@@ -204,6 +254,17 @@ const UK: Text = Text {
         ("Дивіться, куди йдуть гроші", "За днями, місяцями й категоріями, з пошуком будь-якого купленого товару."),
     ],
     open_source: "відкритий код",
+    pill_open: "Відкритий код · MIT",
+    pill_self: "На власному сервері",
+    host_title: "Встановіть у себе",
+    host_intro: "mm — відкритий код під ліцензією MIT. Запустіть його на власному сервері з Docker: дані залишаються на машині, якою керуєте ви, і навіть цей сервер зберігає лише шифр.",
+    host_steps: [
+        "Сервер з Docker і доменом: passkey і камері потрібен HTTPS.",
+        "Завантажте застосунок і вкажіть DOMAIN у deploy/.env. Пароль бази даних створиться сам.",
+        "Запустіть. Caddy сам отримає сертифікат; перша збірка триває 10–20 хвилин.",
+        "Створіть запрошення для кожної людини й відкрийте свій домен на телефоні.",
+    ],
+    host_guide: "Повна інструкція на GitHub",
 };
 
 /// "Money manager (mm)": the app's name wherever it is introduced.
@@ -223,9 +284,16 @@ pub fn welcome(c: Ctx) -> impl IntoView {
     let page = move || {
         let t = text(lang.get());
         let lines = t.features.iter().map(|(k, v)| view! { <li class="line"><span>{*k}</span><span class="num">{*v}</span></li> }).collect_view();
+        let host = t.host_steps.iter().zip(HOST_COMMANDS).map(|(k, cmd)| view! {
+            <li><span>{*k}</span><pre><code>{cmd}</code></pre></li>
+        }).collect_view();
         let steps = t.steps.iter().map(|(k, v)| view! { <li><strong>{*k}</strong><span class="hint">{*v}</span></li> }).collect_view();
         view! {
             <h1 data-test="headline">{t.headline}</h1>
+            <div class="pills" data-test="pills">
+                <a class="pill" href=REPO rel="noopener">{icon(Icon::Code)}{t.pill_open}</a>
+                <a class="pill" href="#self-host">{icon(Icon::Server)}{t.pill_self}</a>
+            </div>
             <p class="lead">{t.lead}</p>
             <div class="cta">
                 <button class="primary" data-test="go-register" on:click=register>{t.create}</button>
@@ -249,13 +317,19 @@ pub fn welcome(c: Ctx) -> impl IntoView {
             </div>
             <h2>{t.how}</h2>
             <ol class="steps">{steps}</ol>
+            <section class="host" id="self-host" data-test="self-host">
+                <h2>{icon(Icon::Server)}{t.host_title}</h2>
+                <p class="hint">{t.host_intro}</p>
+                <ol class="host-steps">{host}</ol>
+                <a class="guide" href=GUIDE rel="noopener" data-test="host-guide">{t.host_guide}" →"</a>
+            </section>
             <div class="cta">
                 <button class="primary" on:click=register>{t.create}</button>
                 <button on:click=login>{t.sign_in}</button>
             </div>
             <footer class="foot" data-test="footer">
                 <a href="mailto:contact@dthem.com">"contact@dthem.com"</a>
-                <span class="hint">"Money manager (mm) · "{t.open_source}" · "<a href="https://github.com/dthemn/mm" rel="noopener">"GitHub"</a></span>
+                <span class="hint">"Money manager (mm) · "{t.open_source}" · "<a href=REPO rel="noopener">"GitHub"</a></span>
             </footer>
         }
     };

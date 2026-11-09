@@ -6,6 +6,9 @@ The server only ever stores ciphertext.
 
 **Try it: <https://mm.dthem.com>** (new accounts need an invite).
 
+**Open source (MIT) and self-hosted:** run it on your own server with Docker in about 15 minutes, see
+[docs/DEPLOY.md](docs/DEPLOY.md). The database holds only ciphertext either way.
+
 <p align="center">
   <img src="web/static/shot-dark.webp" width="280" alt="Home in the dark theme: spent and income for the month, then operations by day">
   &nbsp;&nbsp;

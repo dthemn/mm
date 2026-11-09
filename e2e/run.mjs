@@ -1232,6 +1232,16 @@ await test("the front page says what mm is, shows both themes, the two ways in a
   // Four languages; the choice stays on this device and sets the page language.
   const head = () => p.$eval(q("headline"), (e) => e.textContent);
   eq(await head(), "Every expense, kept like a receipt.", "English for an English browser");
+  // Open source and self-hosted stand out at the top, and the page explains how to run it on one's own server.
+  const pills = await p.$$eval(`${q("pills")} a`, (a) => a.map((e) => [e.textContent, e.getAttribute("href")]));
+  eq(pills, [["Open source · MIT", "https://github.com/dthemn/mm"], ["Self-hosted", "#self-host"]], "two badges");
+  const host = await p.$eval(q("self-host"), (e) => e.textContent);
+  ok(host.includes("git clone https://github.com/dthemn/mm.git") && host.includes("mm-server invite") && host.includes("deploy/compose.yml"), "the commands");
+  eq(await p.$eval(q("host-guide"), (e) => e.getAttribute("href")), "https://github.com/dthemn/mm/blob/main/docs/DEPLOY.md", "the full guide");
+  await p.click(`${q("pills")} a[href="#self-host"]`);
+  await p.waitForFunction((s) => { const r = document.querySelector(s).getBoundingClientRect(); return r.top >= 0 && r.top < innerHeight / 2; }, {}, q("self-host"));
+  if (process.env.SHOT_LANDING) await p.screenshot({ path: process.env.SHOT_LANDING + "host.png" });
+  await p.$eval("main", (m) => m.scrollTo(0, 0));
   ok(await p.$eval(`${q("footer")} ~ nav.langs`, (e) => e.textContent.includes("Polski")), "languages below the footer");
   for (const [code, want] of [["pl", "Każdy wydatek"], ["ru", "Каждый расход"], ["uk", "Кожна витрата"]]) {
     await p.click(q(`lang-${code}`));
