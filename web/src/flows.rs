@@ -4,8 +4,10 @@ use crate::api::{self, ApiFail};
 use crate::{device, store::{Kv, Store}, webauthn};
 use mm_core::api::*;
 use mm_core::crypto::{Dek, Phrase, WrapSlot, kek_from_prf, phrase_challenge, unwrap_dek, wrap_dek};
+use std::cell::RefCell;
 use std::rc::Rc;
 use uuid::Uuid;
+use zeroize::Zeroizing;
 
 #[derive(Clone)]
 pub struct Session {
@@ -20,6 +22,41 @@ pub enum LoginResult {
     Unlocked(Session),
     /// The passkey is verified, but this device has no PRF and is not linked yet.
     NeedPhrase,
+}
+
+/// A passkey that returned PRF at sign-in but has no DEK copy on the server: registered where the
+/// authenticator gave no PRF. Once the DEK is unlocked another way, the copy is added, so later
+/// sign-ins on any device where this passkey gives PRF need no words.
+struct Upgrade {
+    user: Uuid,
+    raw_id: Vec<u8>,
+    prf: Zeroizing<Vec<u8>>,
+}
+
+thread_local! {
+    static UPGRADE: RefCell<Option<Upgrade>> = const { RefCell::new(None) };
+}
+
+/// The words asked now will be the last time for this passkey on devices that give PRF.
+pub fn upgrade_pending() -> bool {
+    UPGRADE.with_borrow(Option::is_some)
+}
+
+pub fn forget_upgrade() {
+    UPGRADE.with_borrow_mut(|u| *u = None);
+}
+
+/// Saves the DEK copy under the passkey's PRF on the server and on this device. False if it could not.
+async fn upgrade(kv: &Kv, u: &Upgrade, dek: &Dek) -> bool {
+    let Ok(w) = kek_from_prf(&u.prf).and_then(|k| wrap_dek(&k, dek, u.user, WrapSlot::Prf)) else { return false };
+    let saved: Result<serde_json::Value, _> = api::post("/api/passkeys/prf", &PasskeyPrfReq {
+        cred_id: B64(u.raw_id.clone()),
+        wrapped_dek_prf: B64(w.clone()),
+    }).await;
+    if !saved.is_ok_and(|v| v["saved"] == true) {
+        return false;
+    }
+    device::cache_wrap(kv, u.user, &u.raw_id, &w).await.is_ok()
 }
 
 fn s<T: std::fmt::Display>(x: T) -> String {
@@ -71,6 +108,7 @@ pub async fn register(label: &str, phrase: &Phrase) -> Result<Session, String> {
 }
 
 pub async fn login(online: bool) -> Result<LoginResult, String> {
+    forget_upgrade();
     let kv = Kv::open().await?;
     let mut server_wrap = None;
     let mut have_session = false;
@@ -116,12 +154,21 @@ pub async fn login(online: bool) -> Result<LoginResult, String> {
             .map_err(|_| "This passkey could not decrypt the key".to_string())?;
         return Ok(LoginResult::Unlocked(session(user, dek, true).await?));
     }
+    let pending = match (&a.prf_output, &wrap) {
+        (Some(out), None) if have_session => Some(Upgrade { user, raw_id: a.raw_id.clone(), prf: Zeroizing::new(out.clone()) }),
+        _ => None,
+    };
     if let Some(dek) = device::load_dek(&kv, user).await? {
-        return Ok(LoginResult::Unlocked(session(user, dek, false).await?));
+        let prf = match &pending {
+            Some(u) => upgrade(&kv, u, &dek).await,
+            None => false,
+        };
+        return Ok(LoginResult::Unlocked(session(user, dek, prf).await?));
     }
     if !have_session {
         return Err("The first login on this device needs a connection".into());
     }
+    UPGRADE.with_borrow_mut(|u| *u = pending);
     Ok(LoginResult::NeedPhrase)
 }
 
@@ -143,6 +190,13 @@ pub async fn recover(phrase: &Phrase, remember: bool) -> Result<Session, String>
         .map_err(|_| "Could not decrypt the key".to_string())?;
     let kv = Kv::open().await?;
     device::add_user(&kv, r.user_id).await?;
+    // The passkey just used gives PRF: from now on it unlocks the key by itself, here and elsewhere.
+    let pending = UPGRADE.with_borrow_mut(Option::take).filter(|u| remember && u.user == r.user_id);
+    if let Some(u) = pending
+        && upgrade(&kv, &u, &dek).await
+    {
+        return session(r.user_id, dek, true).await;
+    }
     if remember {
         device::store_dek(&kv, r.user_id, &dek).await?;
     }

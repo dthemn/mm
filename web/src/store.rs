@@ -191,6 +191,18 @@ impl Kv {
         tx.done().await.map_err(e)?;
         Ok(())
     }
+    /// Deletes every key that starts with `prefix`.
+    pub async fn del_prefix(&self, prefix: &str) -> Result<(), String> {
+        let tx = self.0.transaction(&["kv"], TransactionMode::ReadWrite).map_err(e)?;
+        let store = tx.store("kv").map_err(e)?;
+        for k in store.get_all_keys(None, None).await.map_err(e)? {
+            if k.as_string().is_some_and(|k| k.starts_with(prefix)) {
+                store.delete(k).await.map_err(e)?;
+            }
+        }
+        tx.done().await.map_err(e)?;
+        Ok(())
+    }
     pub async fn del(&self, k: &str) -> Result<(), String> {
         let tx = self.0.transaction(&["kv"], TransactionMode::ReadWrite).map_err(e)?;
         tx.store("kv").map_err(e)?.delete(JsValue::from_str(k)).await.map_err(e)?;

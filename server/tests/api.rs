@@ -489,3 +489,37 @@ async fn session_cookie_is_http_only_and_strict() {
     let v = r.headers()["set-cookie"].to_str().unwrap();
     assert!(v.contains("HttpOnly") && v.contains("SameSite=Strict"));
 }
+
+#[tokio::test]
+async fn a_passkey_without_prf_gets_its_copy_once_and_only_for_its_own_user() {
+    let c = start().await;
+    let (a, b) = (account(&c).await, account(&c).await);
+    let cred = vec![7u8; 16];
+    // A passkey registered where the authenticator returned no PRF.
+    sqlx::query("INSERT INTO credentials (cred_id, user_id, passkey) VALUES ($1,$2,'{}')")
+        .bind(&cred).bind(a.user).execute(&c.db).await.unwrap();
+    let set = |http: reqwest::Client, wrap: Vec<u8>| {
+        let (url, cred) = (c.url.clone(), cred.clone());
+        async move {
+            let r = http.post(format!("{url}/api/passkeys/prf"))
+                .json(&PasskeyPrfReq { cred_id: B64(cred), wrapped_dek_prf: B64(wrap) }).send().await.unwrap();
+            (r.status().as_u16(), r.json::<serde_json::Value>().await.ok())
+        }
+    };
+    let stored = || async {
+        sqlx::query_scalar::<_, Option<Vec<u8>>>("SELECT wrapped_dek_prf FROM credentials WHERE cred_id = $1")
+            .bind(&cred).fetch_one(&c.db).await.unwrap()
+    };
+    assert_eq!(set(client(), vec![1; 80]).await.0, 401, "needs a session");
+    let (_, r) = set(login(&c, &b).await, vec![2; 80]).await;
+    assert_eq!(r.unwrap()["saved"], false, "another user's passkey is not touched");
+    assert_eq!(stored().await, None);
+    let ha = login(&c, &a).await;
+    let (_, r) = set(ha.clone(), vec![3; 80]).await;
+    assert_eq!(r.unwrap()["saved"], true);
+    assert_eq!(stored().await, Some(vec![3; 80]));
+    let (_, r) = set(ha.clone(), vec![4; 80]).await;
+    assert_eq!(r.unwrap()["saved"], false, "an existing copy is never replaced");
+    assert_eq!(stored().await, Some(vec![3; 80]));
+    assert_eq!(set(ha, vec![]).await.0, 400, "an empty copy is refused");
+}

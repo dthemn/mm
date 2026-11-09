@@ -27,6 +27,9 @@ Principles, highest priority first:
 ## Decisions already made
 
 - Sign-in is a passkey. The 12 BIP39 words are only a backup for a lost passkey, and are needed to add a passkey.
+- A passkey saved without a PRF copy (the owner's, made in Bitwarden on an iPhone on 2026-11-04) gets one the first time
+  a sign-in returns PRF: the words are asked once, then `/api/passkeys/prf` stores the copy, never replacing one.
+  A private window is a new device every time: without PRF from the passkey it always needs the words.
 - A passkey without PRF: the 12 words are entered once on that device, then the DEK is kept under a
   non-extractable WebCrypto key, and later sign-ins use the passkey.
 - P-256 from RustCrypto signs phrase logins, instead of Ed25519, to stay within vetted crates.
@@ -117,9 +120,9 @@ to home screen and OCR speed on a mid-range Android are still unverified. No VPS
 ```sh
 docker compose -f compose.dev.yml up -d        # throwaway test DB on 127.0.0.1:55432
 cargo test -p mm-core                          # 159 tests
-cargo test -p mm-server                        # 21 tests, needs the test DB
+cargo test -p mm-server                        # 22 tests, needs the test DB
 web/build.sh && cargo build -p mm-server
-node e2e/run.mjs > /tmp/e2e.log 2>&1           # 59 tests; write to a file, never pipe into head or tail
+node e2e/run.mjs > /tmp/e2e.log 2>&1           # 60 tests; write to a file, never pipe into head or tail
 LIMIT=90000 node e2e/scan.mjs                  # real receipts in samples/receipts, prints scores only
 SHOW=1 ...                                     # also prints recognized lines (sets localStorage.mmDebug)
 docker compose up --build -d                   # whole app on http://localhost:8080 (use localhost, not 127.0.0.1)

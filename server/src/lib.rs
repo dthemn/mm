@@ -102,6 +102,7 @@ pub fn router(db: PgPool, cfg: &Config) -> Router {
         .route("/logout", post(auth::logout))
         .route("/passkeys/add/start", post(auth::add_passkey_start))
         .route("/passkeys/add/finish", post(auth::add_passkey_finish))
+        .route("/passkeys/prf", post(auth::set_passkey_prf))
         .route("/account/delete", post(auth::delete_account))
         .route("/sync/pull", get(sync::pull))
         .route("/sync/push", post(sync::push))

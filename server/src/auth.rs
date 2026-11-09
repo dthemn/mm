@@ -251,6 +251,15 @@ pub async fn add_passkey_finish(s: State, AuthUser(user): AuthUser, Json(q): Jso
     Ok(Json(json!({ "ok": true })))
 }
 
+/// Stores the PRF copy of the DEK for one of the user's passkeys that has none yet. `saved` is false when
+/// the passkey is not the user's or already has a copy: an existing copy is never replaced.
+pub async fn set_passkey_prf(s: State, AuthUser(user): AuthUser, Json(q): Json<PasskeyPrfReq>) -> Result<Json<Value>> {
+    check_wrap(&q.wrapped_dek_prf)?;
+    let r = sqlx::query("UPDATE credentials SET wrapped_dek_prf = $1 WHERE cred_id = $2 AND user_id = $3 AND wrapped_dek_prf IS NULL")
+        .bind(&q.wrapped_dek_prf.0).bind(&q.cred_id.0).bind(user).execute(&s.db).await?;
+    Ok(Json(json!({ "saved": r.rows_affected() == 1 })))
+}
+
 pub async fn delete_account(s: State, AuthUser(user): AuthUser) -> Result<impl IntoResponse> {
     sqlx::query("DELETE FROM users WHERE id = $1").bind(user).execute(&s.db).await?;
     Ok(AppendHeaders([(header::SET_COOKIE, cookie(&s, "", 0)?)]))

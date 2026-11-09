@@ -95,6 +95,8 @@ pub async fn forget_user(kv: &Kv, user: Uuid) -> Result<(), String> {
     kv.put(USERS, &JsValue::from_str(&u.join(","))).await?;
     kv.del(&format!("devdek:{user}")).await?;
     kv.del(&format!("devkey:{user}")).await?;
+    // The DEK copies under this user's passkeys: ciphertext, but erasing the device leaves nothing.
+    kv.del_prefix(&format!("wrap:{user}:")).await?;
     forget_kept(kv, user).await
 }
 

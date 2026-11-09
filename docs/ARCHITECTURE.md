@@ -54,6 +54,12 @@ Sign-in modes:
 - Passkey without PRF: the phrase is entered once when linking the device. The DEK is then stored locally under a
   non-extractable WebCrypto key, and later sign-ins use the passkey. This is weaker: the browser protects that copy,
   not the biometric check, so code with access to the browser profile could unwrap it.
+- Passkey saved without its PRF copy: some authenticators (Bitwarden on an iPhone did) return no PRF when the passkey
+  is created, but do return it at sign-in, on that device or another one the password manager syncs to. When a sign-in
+  gives PRF and the server holds no copy for that passkey, the DEK is unlocked once with the phrase (or the device's
+  stored copy), then wrapped under the PRF and saved with `POST /api/passkeys/prf`. The server accepts it only for the
+  session user's own passkey and only while it has none, so an existing copy is never replaced. Later sign-ins on any
+  device where the passkey gives PRF need no phrase.
 
 Adding a passkey requires a phrase signature in addition to a session, so a stolen cookie is not enough.
 

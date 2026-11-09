@@ -495,6 +495,38 @@ await test("new device without PRF: 12 words once, then passkey only", async () 
   await d.close();
 });
 
+await test("a passkey saved without its PRF copy gets one: words once, then the passkey alone on a new device", async () => {
+  const d = await Device.open("prf-later", { prf: true });
+  const words = await d.register();
+  await d.addNote("prf later");
+  await d.waitText("status", "Synced");
+  const { credentials } = await d.cdp.send("WebAuthn.getCredentials", { authenticatorId: d.auth });
+  const cred = `decode('${Buffer.from(credentials[0].credentialId, "base64").toString("hex")}', 'hex')`;
+  // As if the authenticator had returned no PRF when the passkey was made (Bitwarden on an iPhone did).
+  sql(`UPDATE credentials SET wrapped_dek_prf = NULL WHERE cred_id = ${cred}`, dbName);
+  const copies = () => sql(`SELECT count(*) FROM credentials WHERE wrapped_dek_prf IS NOT NULL AND cred_id = ${cred}`, dbName).trim();
+  // A new device: nothing stored locally, the same passkey.
+  const fresh = async () => {
+    await d.click("nav-settings");
+    await d.click("forget-device");
+    await d.page.waitForSelector(q("go-login"));
+    await d.click("go-login");
+    await d.login();
+  };
+  await fresh();
+  await d.page.waitForSelector(q("prf-upgrade-note"));
+  await d.type("phrase-input", words.join(" "));
+  await d.click("phrase-submit");
+  await d.waitNote("prf later");
+  eq(copies(), "1", "the PRF copy is saved for this passkey");
+  await d.click("nav-settings");
+  ok((await d.text("prf-status")).includes(": on"), "passkey encryption is on");
+  await fresh();
+  await d.waitNote("prf later");
+  ok(!(await d.page.$(q("phrase-input"))), "no words on the next new device");
+  await d.close();
+});
+
 await test("account deletion erases data on the server and the device", async () => {
   const before = +sql("SELECT count(*) FROM users", dbName);
   await noPrf.click("nav-settings");

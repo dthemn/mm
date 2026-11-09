@@ -77,6 +77,14 @@ pub struct RecoverFinishReq {
     pub signature: B64,
 }
 
+/// Adds the DEK copy under a passkey's PRF to a passkey registered without one, the first time
+/// the passkey returns PRF on a device that can unlock the key. Never replaces an existing copy.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PasskeyPrfReq {
+    pub cred_id: B64,
+    pub wrapped_dek_prf: B64,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PasskeyAddFinishReq {
     pub challenge_id: Uuid,

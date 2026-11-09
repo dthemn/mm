@@ -477,7 +477,7 @@ fn locked(c: Ctx) -> impl IntoView {
         <h1>"Welcome back"</h1>
         <button class="primary" data-test="login" disabled=move || c.busy.get() on:click=unlock>"Sign in with passkey"</button>
         {waiting(c)}
-        <button data-test="go-recover" on:click=move |_| { c.error.set(String::new()); c.screen.set(Screen::Phrase(false)) }>"I lost my passkey"</button>
+        <button data-test="go-recover" on:click=move |_| { c.error.set(String::new()); flows::forget_upgrade(); c.screen.set(Screen::Phrase(false)) }>"I lost my passkey"</button>
         <button on:click=move |_| { c.error.set(String::new()); c.screen.set(Screen::Welcome) }>"Create account"</button>
     }
 }
@@ -496,7 +496,9 @@ fn phrase_entry(c: Ctx, remember: bool) -> impl IntoView {
     });
     view! {
         <h1>"12 words"</h1>
-        {if remember {
+        {if remember && flows::upgrade_pending() {
+            view! { <p data-test="prf-upgrade-note">"Your passkey was created where it could not encrypt. Enter the words once more: after that the passkey alone opens your data, on this and other devices."</p> }.into_any()
+        } else if remember {
             view! { <p data-test="no-prf-note">"This device cannot encrypt with a passkey. Enter the words once, and later sign-ins will use the passkey."</p> }.into_any()
         } else {
             view! { <p>"You will need to add a new passkey after signing in."</p> }.into_any()
