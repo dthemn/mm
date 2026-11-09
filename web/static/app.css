@@ -305,15 +305,15 @@ details[open] > summary .chev { transform: rotate(90deg); }
 
 /* Front page for visitors without an account. */
 .landing { display: flex; flex-direction: column; gap: 18px; }
-.hero-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 8px; flex-wrap: wrap; }
-.brand { display: flex; align-items: center; gap: 2px; color: var(--muted); font-size: 15px; white-space: nowrap; }
+.brand { display: flex; align-items: center; gap: 2px; color: var(--muted); font-size: 15px; white-space: nowrap; padding-top: 8px; }
 .logo { font-weight: 800; color: var(--accent); }
-.langs { display: flex; gap: 2px; border: 1px solid var(--line); border-radius: 8px; padding: 2px; }
-.langs button { width: auto; min-height: 32px; padding: 2px 8px; border: 0; border-radius: 6px; font-size: 13px; color: var(--muted); }
-.langs button.active { background: var(--fg); color: var(--bg); font-weight: 700; }
+.langs { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 14px; margin-top: -8px; padding-bottom: 8px; }
+.langs button { width: auto; min-height: 32px; padding: 2px 0; border: 0; border-radius: 0; font-size: 13px; color: var(--muted); }
+.langs button.active { color: var(--fg); text-decoration: underline; text-underline-offset: 4px; }
 .landing h1 { font-size: clamp(28px, 8.5vw, 38px); line-height: 1.1; margin: 0; }
 .lead { color: var(--muted); font-size: 16px; }
 .cta { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.cta button { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-left: 8px; padding-right: 8px; }
 .shots { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; padding: 6px 4px 18px; }
 .shots figure { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 8px; }
 .shots figure:nth-child(2) { transform: translateY(18px); }

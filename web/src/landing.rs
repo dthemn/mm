@@ -24,6 +24,16 @@ impl Lang {
         }
     }
 
+    /// The language's own name, as its speakers write it.
+    fn name(self) -> &'static str {
+        match self {
+            Lang::En => "English",
+            Lang::Pl => "Polski",
+            Lang::Ru => "Русский",
+            Lang::Uk => "Українська",
+        }
+    }
+
     fn from_code(s: &str) -> Option<Lang> {
         let s = s.to_ascii_lowercase();
         Lang::ALL.into_iter().find(|l| s.starts_with(l.code()))
@@ -82,8 +92,8 @@ fn text(l: Lang) -> &'static Text {
 
 const EN: Text = Text {
     headline: "Every expense, kept like a receipt.",
-    lead: "A family tracker for spending and income. Photograph a receipt and your phone reads it. Your data is encrypted before it leaves the device.",
-    create: "Create account",
+    lead: "A money manager for spending and income. Photograph a receipt and your phone reads it. Your data is encrypted before it leaves the device.",
+    create: "Sign up",
     sign_in: "Sign in",
     invite: "New accounts need an invite.",
     dark: "Dark",
@@ -97,7 +107,7 @@ const EN: Text = Text {
         ("Lines by category", "automatic"),
         ("Bank CSV import", "no doubles"),
         ("Charts, search", "any item"),
-        ("Family members", "own keys"),
+        ("Every user", "own key"),
     ],
     sees: ("Server sees", "ciphertext"),
     how: "How it works",
@@ -111,7 +121,7 @@ const EN: Text = Text {
 
 const PL: Text = Text {
     headline: "Każdy wydatek zapisany jak na paragonie.",
-    lead: "Rodzinny budżet: wydatki i przychody w jednym miejscu. Zrób zdjęcie paragonu, a telefon sam go odczyta. Dane są szyfrowane, zanim opuszczą urządzenie.",
+    lead: "Menedżer finansów: wydatki i przychody w jednym miejscu. Zrób zdjęcie paragonu, a telefon sam go odczyta. Dane są szyfrowane, zanim opuszczą urządzenie.",
     create: "Załóż konto",
     sign_in: "Zaloguj się",
     invite: "Rejestracja tylko z zaproszeniem.",
@@ -126,7 +136,7 @@ const PL: Text = Text {
         ("Pozycje wg kategorii", "automatycznie"),
         ("Import wyciągu CSV", "bez duplikatów"),
         ("Wykresy, szukanie", "każdy produkt"),
-        ("Członkowie rodziny", "własne klucze"),
+        ("Każdy użytkownik", "własny klucz"),
     ],
     sees: ("Serwer widzi", "tylko szyfr"),
     how: "Jak to działa",
@@ -140,7 +150,7 @@ const PL: Text = Text {
 
 const RU: Text = Text {
     headline: "Каждый расход — как на чеке.",
-    lead: "Семейный учёт расходов и доходов. Сфотографируйте чек — телефон сам его прочитает. Данные шифруются ещё до того, как покинут устройство.",
+    lead: "Финансовый трекер расходов и доходов. Сфотографируйте чек — телефон сам его прочитает. Данные шифруются ещё до того, как покинут устройство.",
     create: "Регистрация",
     sign_in: "Войти",
     invite: "Для регистрации нужно приглашение.",
@@ -155,7 +165,7 @@ const RU: Text = Text {
         ("Строки по категориям", "автоматически"),
         ("Импорт выписки CSV", "без дублей"),
         ("Графики, поиск", "любой товар"),
-        ("Члены семьи", "свои ключи"),
+        ("Каждый пользователь", "свой ключ"),
     ],
     sees: ("Сервер видит", "только шифр"),
     how: "Как это работает",
@@ -169,7 +179,7 @@ const RU: Text = Text {
 
 const UK: Text = Text {
     headline: "Кожна витрата — як на чеку.",
-    lead: "Сімейний облік витрат і доходів. Сфотографуйте чек — телефон сам його прочитає. Дані шифруються ще до того, як залишать пристрій.",
+    lead: "Фінансовий трекер витрат і доходів. Сфотографуйте чек — телефон сам його прочитає. Дані шифруються ще до того, як залишать пристрій.",
     create: "Реєстрація",
     sign_in: "Увійти",
     invite: "Для реєстрації потрібне запрошення.",
@@ -184,7 +194,7 @@ const UK: Text = Text {
         ("Рядки за категоріями", "автоматично"),
         ("Імпорт виписки CSV", "без дублів"),
         ("Графіки, пошук", "будь-який товар"),
-        ("Члени родини", "власні ключі"),
+        ("Кожен користувач", "власний ключ"),
     ],
     sees: ("Сервер бачить", "лише шифр"),
     how: "Як це працює",
@@ -207,8 +217,8 @@ pub fn welcome(c: Ctx) -> impl IntoView {
     let register = move |_| c.screen.set(Screen::Invite);
     let login = move |_| c.screen.set(Screen::Locked);
     let switch = Lang::ALL.into_iter().map(|l| view! {
-        <button data-test=format!("lang-{}", l.code()) class:active=move || lang.get() == l aria-pressed=move || (lang.get() == l).to_string()
-            on:click=move |_| { lang.set(l); remember(l); }>{l.code().to_uppercase()}</button>
+        <button data-test=format!("lang-{}", l.code()) lang=l.code() class:active=move || lang.get() == l aria-pressed=move || (lang.get() == l).to_string()
+            on:click=move |_| { lang.set(l); remember(l); }>{l.name()}</button>
     }).collect_view();
     let page = move || {
         let t = text(lang.get());
@@ -251,11 +261,9 @@ pub fn welcome(c: Ctx) -> impl IntoView {
     };
     view! {
         <section class="landing" data-test="landing">
-            <div class="hero-top">
-                {brand()}
-                <div class="langs" role="group" aria-label="Language">{switch}</div>
-            </div>
+            {brand()}
             {page}
+            <nav class="langs" aria-label="Language">{switch}</nav>
         </section>
     }
 }

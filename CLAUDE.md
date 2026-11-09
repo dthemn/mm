@@ -63,7 +63,8 @@ Principles, highest priority first:
   accounts are receipt cards (`.slipcard`), one row per entry with a badge and its use, opening in place to edit.
   (`.sheet` is the calendar bottom sheet, do not reuse it.)
 - The app is named "Money manager (mm)". The Welcome screen (`web/src/landing.rs`) is the only translated page: EN, PL, RU, UK,
-  picked from `localStorage.mmLang` or the browser. The front page for visitors shows what mm is, a dark and a light screenshot, Create account and
+  picked from `localStorage.mmLang` or the browser; the language links sit under the footer. The owner wants no "family"
+  wording on the page or in the README: say money manager or financial tracker. The front page for visitors shows what mm is, a dark and a light screenshot, Create account and
   Sign in, footer contact@dthem.com. The screenshots `web/static/shot-*.webp` come from made-up data via `node e2e/shots.mjs`;
   never replace them with screens of real data.
 - Categories are English: Food, Household, Subscriptions, Transport, Health, Clothing, Entertainment,

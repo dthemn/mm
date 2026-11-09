@@ -1232,10 +1232,12 @@ await test("the front page says what mm is, shows both themes, the two ways in a
   // Four languages; the choice stays on this device and sets the page language.
   const head = () => p.$eval(q("headline"), (e) => e.textContent);
   eq(await head(), "Every expense, kept like a receipt.", "English for an English browser");
+  ok(await p.$eval(`${q("footer")} ~ nav.langs`, (e) => e.textContent.includes("Polski")), "languages below the footer");
   for (const [code, want] of [["pl", "Każdy wydatek"], ["ru", "Каждый расход"], ["uk", "Кожна витрата"]]) {
     await p.click(q(`lang-${code}`));
     await p.waitForFunction((s, w) => document.querySelector(s).textContent.startsWith(w), {}, q("headline"), want);
     eq(await p.evaluate(() => document.documentElement.lang), code, `html lang ${code}`);
+    ok(!/famil|семей|сімей|rodzin/i.test(await p.$eval(q("landing"), (e) => e.textContent)), `no family wording in ${code}`);
   }
   await p.reload({ waitUntil: "load" });
   await p.waitForSelector(q("landing"));

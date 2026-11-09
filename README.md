@@ -1,25 +1,38 @@
-# mm
+# Money manager (mm)
 
-A personal income and expense tracker for a family in Poland: a mobile web app (PWA) in Rust with end-to-end encryption.
-The main flow: photograph a receipt, and the app handles the rest on the device.
+A money manager for spending and income in złoty, as a mobile web app (PWA) written in Rust, with end-to-end encryption.
+Photograph a receipt and your phone reads it: the shop, date, total and every line, sorted by category.
+The server only ever stores ciphertext.
 
-> **Status: early development.** Stages 1 to 4 of 6 are done: manual operations, a dashboard, and receipt scanning on
-> the device. Statement import and subscriptions do not exist yet. Everything was tested in desktop Chrome with a
-> virtual passkey and a fake camera. Nothing has been tested on a real iPhone or Android phone yet.
+**Try it: <https://mm.dthem.com>** (new accounts need an invite).
+
+<p align="center">
+  <img src="web/static/shot-dark.webp" width="280" alt="Home in the dark theme: spent and income for the month, then operations by day">
+  &nbsp;&nbsp;
+  <img src="web/static/shot-light.webp" width="280" alt="Stats in the light theme: a ring of spending by category with shares">
+</p>
+
+The screenshots show made-up data (`node e2e/shots.mjs` makes them).
+
+> **Status: in development.** Manual entry, receipt scanning, CSV statement import, statistics and search work, and the app
+> is in use on an iPhone; the live camera on phones is still being checked. PDF statements, invoices and bank-specific statement formats are not done yet, and there are
+> no automated backups.
 
 ## What works today
 
-- Passkey sign-in, a 12-word recovery phrase, and automatic locking.
-- Offline use, with sync across your devices when back online. Conflicts stay visible until you choose a version.
-- Expenses and income with merchant, NIP, account, payment method, note and a separate category for each line item.
-- Foreign-currency operations, with the PLN amount entered by hand for now.
-- A dashboard calculated on the device: balance, spending by category, six-month trend, top merchants, recent operations.
-- Filters by period, account and category. Tapping a category opens its items.
-- Your own categories and accounts, category merging, and merchant editing.
-- Export of all your data to CSV or JSON.
-- Receipt scanning on the device: take a photo or pick one, check the highlighted fields, save.
-  Each item gets its own category, and a category you correct is remembered for that shop.
-  The photo is never stored or sent anywhere, and recognition works offline after the first scan.
+- **Sign-in** with a passkey (Face ID, fingerprint or the device code), a 12-word recovery phrase, and "stay signed in"
+  for 1 minute, 1 hour or 12 hours on each device.
+- **Receipts from a photo or a screenshot**, recognized on the device. Each line gets a category; a mixed receipt
+  (food and household goods) stays one operation, split by category with exact sums. Corrections are remembered per shop.
+- **Manual operations**: expenses and income with their own categories (salary, bonus, gift…), merchant, NIP,
+  account, payment method, note and line items. Foreign currencies with NBP rates.
+- **Bank statements in CSV**, with a preview. Re-importing adds nothing, transfers between your own accounts are
+  neither income nor expense, and a receipt matching a card payment counts once.
+- **Home** by day, month or as a summary with rings by category; a calendar jumps to any date.
+- **Stats**: a ring by category where a tap leaves a category out, a six-month trend, top merchants, subscriptions,
+  and a search that adds up any item, shop or category ("mleko": how many times, how much, for how much).
+- Categories, merchants and accounts to rename, merge or delete; export of everything to CSV or JSON.
+- Dark and light themes, offline use, and sync across your devices with visible conflicts.
 
 ## Principles
 
@@ -46,7 +59,7 @@ The main flow: photograph a receipt, and the app handles the rest on the device.
 - During registration the client creates a random 256-bit data key (DEK) and a 12-word BIP39 phrase.
 - The server stores the DEK only in wrapped form: one copy under the passkey's PRF output, one under the phrase.
 - The 12 words are a backup for a lost passkey, and are also needed to add a passkey.
-- Each family member has a separate account and a separate key.
+- Each user has a separate account and a separate key.
 - **There is no password reset. Losing both the passkey and the 12 words means losing the data.**
 
 Records are encrypted with XChaCha20-Poly1305. The user id, record id, schema version and revision are bound
@@ -132,7 +145,7 @@ node e2e/run.mjs
 
 A database administrator sees only ciphertext. However, whoever controls the server that delivers the frontend can
 in theory replace the app's code, and that code would get the key. A web app cannot fully rule this out.
-A strict CSP, SRI and a reproducible build reduce the risk. For a family server under your own control this is acceptable.
+A strict CSP, SRI and a reproducible build reduce the risk. For a server under your own control this is acceptable.
 
 ## Sample data
 
