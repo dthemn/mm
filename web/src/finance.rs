@@ -56,8 +56,8 @@ pub struct FilterState {
     pub tab: RwSignal<HomeTab>,
     /// The calendar is open.
     pub picker: RwSignal<bool>,
-    /// A day picked in the calendar: Home scrolls to it once.
-    pub jump: RwSignal<Option<Date>>,
+    /// The day Daily shows. Its month is always `month`.
+    pub day: RwSignal<Date>,
     /// Categories tapped off in the Stats chart. They leave every number on that screen.
     pub excluded: RwSignal<Vec<Uuid>>,
     /// Stats shows the split of spending, or of income.
@@ -85,7 +85,7 @@ impl FilterState {
             category: RwSignal::new(None),
             tab: RwSignal::new(HomeTab::Daily),
             picker: RwSignal::new(false),
-            jump: RwSignal::new(None),
+            day: RwSignal::new(today()),
             excluded: RwSignal::new(vec![]),
             stats_income: RwSignal::new(false),
             search: RwSignal::new(String::new()),
@@ -105,6 +105,49 @@ impl FilterState {
         let (from, to) = self.period();
         Filter { from: Some(from), to: Some(to), account: self.account.get(), category: self.category.get(), exclude: vec![] }
     }
+
+    /// Daily: the chosen day, or the custom period when one is set.
+    fn build_day(&self) -> Filter {
+        let mut f = self.build();
+        if self.from.with(String::is_empty) || self.to.with(String::is_empty) {
+            let day = self.day.get();
+            (f.from, f.to) = (Some(day), Some(day));
+        }
+        f
+    }
+
+    fn custom(&self) -> bool {
+        !(self.from.with(String::is_empty) || self.to.with(String::is_empty))
+    }
+
+    /// Shows one day: Daily moves to it, and every other view to its month.
+    pub fn show_day(&self, day: Date) {
+        self.from.set(String::new());
+        self.to.set(String::new());
+        self.day.set(day);
+        self.month.set(day.month_of());
+    }
+}
+
+/// Opens a month. Daily then shows today if it is in that month, otherwise the month's latest day with
+/// operations, or its last day when there are none.
+fn show_month(c: Ctx, m: Month) {
+    let now = today();
+    let day = if now.month_of() == m {
+        now
+    } else {
+        c.data.with_untracked(|d| d.txs.iter().map(|t| t.1.date).filter(|x| x.month_of() == m).max())
+            .unwrap_or(if m > now.month_of() { m.first() } else { m.last() })
+    };
+    c.filter.show_day(day);
+}
+
+/// What the arrows beside the period move by.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Step {
+    Day,
+    Month,
+    Year,
 }
 
 fn pln(minor: i64) -> String {
@@ -169,27 +212,25 @@ fn banners(c: Ctx) -> impl IntoView {
     }
 }
 
-/// `yearly`: the arrows move by a year, for the Monthly tab.
-fn filters(c: Ctx, yearly: bool) -> impl IntoView {
+/// The period with its arrows: a day on Daily, a year on Monthly, a month elsewhere.
+fn filters(c: Ctx, step: Step) -> impl IntoView {
     let f = c.filter;
-    let shift = move |n: i32| {
-        f.from.set(String::new());
-        f.to.set(String::new());
-        f.month.update(|m| *m = m.offset(if yearly { n * 12 } else { n }));
+    let shift = move |n: i32| match step {
+        // From a custom period, the arrows start again from the chosen day.
+        Step::Day => f.show_day(if f.custom() { f.day.get_untracked() } else { f.day.get_untracked().add_days(n as i64) }),
+        Step::Month => show_month(c, f.month.get_untracked().offset(n)),
+        Step::Year => show_month(c, f.month.get_untracked().offset(n * 12)),
     };
-    let label = move || {
-        if yearly {
-            f.month.get().year.to_string()
-        } else if f.from.with(String::is_empty) || f.to.with(String::is_empty) {
-            f.month.get().long()
-        } else {
-            "Custom period".to_string()
-        }
+    let label = move || match step {
+        Step::Year => f.month.get().year.to_string(),
+        _ if f.custom() => "Custom period".to_string(),
+        Step::Day => f.day.get().day_label(today().year),
+        Step::Month => f.month.get().long(),
     };
     view! {
         <div class="month">
             <button aria-label="Previous" data-test="month-prev" on:click=move |_| shift(-1)>"‹"</button>
-            <button class="month-label" data-test="month" data-month=move || f.month.get().display()
+            <button class="month-label" data-test="month" data-month=move || f.month.get().display() data-date=move || f.day.get().iso()
                 aria-label="Choose a date" on:click=move |_| f.picker.set(true)>
                 <strong>{label}</strong>{icon(Icon::Calendar)}
             </button>
@@ -441,7 +482,7 @@ fn daily(c: Ctx, d: &Data, f: &Filter) -> AnyView {
         }.into_any();
     }
     if days.is_empty() {
-        return view! { <p class="hint" data-test="empty-list">"Nothing for this period."</p> }.into_any();
+        return view! { <p class="hint" data-test="empty-list">{if c.filter.custom() { "Nothing for this period." } else { "Nothing on this day." }}</p> }.into_any();
     }
     days.iter().map(|(day, list)| {
         let total = day_net(list);
@@ -475,9 +516,7 @@ fn monthly(c: Ctx, d: &Data, f: &Filter, year: i32) -> AnyView {
     }).map(|(month, inc, exp)| {
         let total = inc - exp;
         let open = move |_| {
-            c.filter.from.set(String::new());
-            c.filter.to.set(String::new());
-            c.filter.month.set(month);
+            show_month(c, month);
             c.filter.tab.set(HomeTab::Daily);
         };
         view! {
@@ -575,22 +614,6 @@ fn initial(name: &str) -> String {
 
 /// Home: totals, then Daily, Monthly or Summary.
 pub fn dashboard(c: Ctx) -> impl IntoView {
-    // A day picked in the calendar: scroll to it, or to the nearest earlier day with operations.
-    Effect::new(move |_| {
-        let Some(want) = c.filter.jump.get() else { return };
-        let f = c.filter.build();
-        let target = c.data.with_untracked(|d| {
-            days_of(analytics::filter_txs(&d.txs, &f, &d.categories)).iter().map(|x| x.0).find(|day| *day <= want)
-        });
-        c.filter.jump.set(None);
-        let Some(day) = target else { return };
-        leptos::task::spawn_local(async move {
-            crate::scan::sleep(30).await;
-            if let Some(el) = web_sys::window().and_then(|w| w.document()).and_then(|d| d.get_element_by_id(&format!("day-{}", day.iso()))) {
-                el.scroll_into_view();
-            }
-        });
-    });
     let body = move || {
         let tab = c.filter.tab.get();
         let d = c.data.get();
@@ -604,6 +627,7 @@ pub fn dashboard(c: Ctx) -> impl IntoView {
                 view! { {slips(r.income, r.expense)}{monthly(c, &d, &f, year)} }.into_any()
             }
             HomeTab::Daily => {
+                let f = c.filter.build_day();
                 let r = analytics::dashboard(&d.txs, &d.categories, &f, month);
                 view! { {slips(r.income, r.expense)}{daily(c, &d, &f)} }.into_any()
             }
@@ -615,7 +639,11 @@ pub fn dashboard(c: Ctx) -> impl IntoView {
     };
     view! {
         {tabs(c)}
-        {move || filters(c, c.filter.tab.get() == HomeTab::Monthly)}
+        {move || filters(c, match c.filter.tab.get() {
+            HomeTab::Daily => Step::Day,
+            HomeTab::Monthly => Step::Year,
+            HomeTab::Summary => Step::Month,
+        })}
         {banners(c)}
         {body}
     }
@@ -629,13 +657,13 @@ fn picker(c: Ctx) -> impl IntoView {
     let month = RwSignal::new(start.month);
     let close = move || f.picker.set(false);
     let apply = move |m: Month, day: Option<Date>| {
-        f.from.set(String::new());
-        f.to.set(String::new());
-        f.month.set(m);
-        if day.is_some() {
-            f.tab.set(HomeTab::Daily);
+        match day {
+            Some(day) => {
+                f.show_day(day);
+                f.tab.set(HomeTab::Daily);
+            }
+            None => show_month(c, m),
         }
-        f.jump.set(day);
         close();
     };
     let months = move || (1..=12u32).map(|m| {
@@ -886,7 +914,7 @@ pub fn stats(c: Ctx) -> impl IntoView {
     let words = move || c.data.with(|d| analytics::suggestions(&d.txs, &d.categories, |m| d.merchant_name(m)))
         .into_iter().take(300).map(|w| view! { <option value=w></option> }).collect_view();
     view! {
-        {filters(c, false)}
+        {filters(c, Step::Month)}
         {banners(c)}
         <div class="search">
             {icon(Icon::Search)}
@@ -1295,10 +1323,8 @@ pub fn edit(c: Ctx, id: Option<Uuid>) -> impl IntoView {
                         }
                     }
                     data::write(&s, id.unwrap_or_else(Uuid::new_v4), KIND_TRANSACTION, &t).await?;
-                    // Show the month of the saved operation, so a receipt from last month does not seem to vanish.
-                    c.filter.from.set(String::new());
-                    c.filter.to.set(String::new());
-                    c.filter.month.set(t.date.month_of());
+                    // Show the day of the saved operation, so a receipt from last week does not seem to vanish.
+                    c.filter.show_day(t.date);
                     c.filter.tab.set(HomeTab::Daily);
                     c.screen.set(Screen::Dashboard);
                     after_write(c, &s).await;

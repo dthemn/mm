@@ -38,8 +38,10 @@ Principles, highest priority first:
   and Tesseract misread totals. ORT is an accepted exception to "Rust everywhere".
 - Look: monospace type, dashed rules, receipt-slip cards. Dark theme by default; the user's theme is an encrypted
   `prefs` record (id from `named_id`), cached in `localStorage.mmTheme` only so the sign-in screen opens in it.
-- Home has Daily, Monthly and Summary tabs (`FilterState.tab`); tapping the month opens a calendar sheet that can jump
-  to any year, month or day. Stats keeps the trend, top merchants and subscriptions.
+- Home has Daily, Monthly and Summary tabs (`FilterState.tab`). Daily shows one day (`FilterState.day`, its month is
+  always `FilterState.month`) and its arrows move a day, the owner's choice; Monthly's arrows move a year, Summary's and
+  Stats' a month (opening a month puts Daily on today or the month's latest day with operations). Tapping the period
+  opens a calendar sheet that can jump to any year, month or day. Stats keeps the trend, top merchants and subscriptions.
 - The camera is a full-screen overlay. The light button shows only when `getCapabilities().torch` is true; whether
   iPhone Safari offers it is unverified.
 - The operation form is a receipt: label left, value right, dashed rules. On a new operation an upload button takes
@@ -114,10 +116,10 @@ to home screen and OCR speed on a mid-range Android are still unverified. No VPS
 
 ```sh
 docker compose -f compose.dev.yml up -d        # throwaway test DB on 127.0.0.1:55432
-cargo test -p mm-core                          # 158 tests
+cargo test -p mm-core                          # 159 tests
 cargo test -p mm-server                        # 21 tests, needs the test DB
 web/build.sh && cargo build -p mm-server
-node e2e/run.mjs > /tmp/e2e.log 2>&1           # 58 tests; write to a file, never pipe into head or tail
+node e2e/run.mjs > /tmp/e2e.log 2>&1           # 59 tests; write to a file, never pipe into head or tail
 LIMIT=90000 node e2e/scan.mjs                  # real receipts in samples/receipts, prints scores only
 SHOW=1 ...                                     # also prints recognized lines (sets localStorage.mmDebug)
 docker compose up --build -d                   # whole app on http://localhost:8080 (use localhost, not 127.0.0.1)

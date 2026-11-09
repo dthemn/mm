@@ -80,6 +80,20 @@ impl Date {
     pub fn days_between(self, other: Date) -> i64 {
         (other.days() - self.days()).abs()
     }
+
+    /// The day `n` days later (earlier for a negative `n`). Stays within years 1 to 9999.
+    pub fn add_days(self, n: i64) -> Date {
+        let z = (self.days() + n).clamp(Date { year: 1, month: 1, day: 1 }.days(), Date { year: 9999, month: 12, day: 31 }.days()) + 719468;
+        let era = z.div_euclid(146097);
+        let doe = z - era * 146097;
+        let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+        let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+        let mp = (5 * doy + 2) / 153;
+        let day = (doy - (153 * mp + 2) / 5 + 1) as u32;
+        let month = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
+        let year = (yoe + era * 400 + (month <= 2) as i64) as i32;
+        Date { year, month, day }
+    }
 }
 
 impl Serialize for Date {
@@ -137,6 +151,28 @@ impl Month {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn add_days_crosses_months_years_and_leap_days() {
+        let d = |y, m, n| Date::new(y, m, n).unwrap();
+        assert_eq!(d(2026, 11, 9).add_days(1), d(2026, 11, 10));
+        assert_eq!(d(2026, 11, 30).add_days(1), d(2026, 12, 1));
+        assert_eq!(d(2026, 12, 31).add_days(1), d(2027, 1, 1));
+        assert_eq!(d(2027, 1, 1).add_days(-1), d(2026, 12, 31));
+        assert_eq!(d(2028, 2, 28).add_days(1), d(2028, 2, 29));
+        assert_eq!(d(2028, 3, 1).add_days(-1), d(2028, 2, 29));
+        assert_eq!(d(2026, 3, 1).add_days(-1), d(2026, 2, 28));
+        assert_eq!(d(2026, 11, 9).add_days(0), d(2026, 11, 9));
+        // Every day of four years, one step at a time, matches the day count.
+        let mut x = d(2024, 1, 1);
+        for _ in 0..1461 {
+            let next = x.add_days(1);
+            assert_eq!(next.days(), x.days() + 1);
+            assert!(Date::new(next.year, next.month, next.day).is_some());
+            x = next;
+        }
+        assert_eq!(d(1, 1, 1).add_days(-5), d(1, 1, 1), "clamped at the first day");
+    }
+
     use super::*;
 
     #[test]

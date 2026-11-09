@@ -667,6 +667,33 @@ await test("the calendar jumps to any year, month and day", async () => {
   ok(!(await fin.page.$(q("picker"))), "picking a day closes the calendar");
 });
 
+await test("Daily shows one day, and its arrows move a day back or forward, across months", async () => {
+  await fin.ops();
+  const at = () => fin.page.$eval(q("month"), (e) => ({ date: e.dataset.date, month: e.dataset.month, label: e.textContent }));
+  const start = await at();
+  const shift = (iso, n) => { const x = new Date(iso + "T12:00:00Z"); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
+  ok(/^(Mon|Tue|Wed|Thu|Fri|Sat|Sun), \d+ [A-Z][a-z]+/.test(start.label), `the header names the day: ${start.label}`);
+  const days = await fin.page.$$eval(q("day"), (a) => a.map((e) => e.dataset.date));
+  ok(days.every((x) => x === start.date), `only that day is listed: ${days}`);
+  await fin.click("month-prev");
+  await fin.page.waitForFunction((s, want) => document.querySelector(s).dataset.date === want, {}, q("month"), shift(start.date, -1));
+  await fin.click("month-next");
+  await fin.click("month-next");
+  await fin.page.waitForFunction((s, want) => document.querySelector(s).dataset.date === want, {}, q("month"), shift(start.date, 1));
+  // Back to the first day of the month and one more: the previous month's last day, and the month follows.
+  const first = start.date.slice(0, 8) + "01";
+  for (let i = 0; i < 40 && (await at()).date !== first; i++) await fin.click("month-prev");
+  await fin.click("month-prev");
+  const before = await at();
+  eq(before.date, shift(first, -1), "the last day of the previous month");
+  eq(before.month, `${before.date.slice(5, 7)}.${before.date.slice(0, 4)}`, "the month follows the day");
+  await fin.click("tab-summary");
+  eq((await at()).month, before.month, "Summary shows that month");
+  await fin.click("month-next");
+  await fin.click("tab-daily");
+  eq((await at()).date, start.date, "next month on Summary brings Daily back to today");
+});
+
 await test("Summary shows the period by category, income and account", async () => {
   await fin.ops();
   await fin.click("tab-summary");
@@ -867,8 +894,8 @@ await test("a receipt photo becomes a checked operation with a category per item
   ok(!(await fin.page.$(q("scan-video"))), "the camera is closed once the photo is read");
   await fin.click("f-save");
   await fin.waitText("tx-title", "Sklep Testowy");
-  eq(await fin.page.$eval(q("month"), (e) => e.dataset.month), "10.2026", "the list shows the receipt's month");
-  ok((await fin.text("month")).includes("October 2026"), "the month is written out");
+  eq(await fin.page.$eval(q("month"), (e) => e.dataset.date), "2026-10-31", "Daily shows the receipt's day");
+  ok((await fin.text("month")).includes("31 October"), "the day is written out");
 });
 
 await test("a corrected category is remembered for the next receipt", async () => {
@@ -942,7 +969,24 @@ await test("the camera opens, and a frame without a receipt is reported", async 
   await fin.page.waitForSelector(q("dash-balance"));
 });
 
+// On Home the arrows of Daily move by a day, so months are walked on Summary, then Daily shows that month.
 const gotoMonth = async (d, want) => {
+  const daily = await d.page.$eval(q("tab-daily"), (e) => e.classList.contains("active")).catch(() => false);
+  if (daily) await d.click("tab-summary");
+  try { await walkMonth(d, want); } finally { if (daily) await d.click("tab-daily"); }
+};
+// Daily at one day: its month first, then day by day.
+const gotoDay = async (d, iso) => {
+  await gotoMonth(d, `${iso.slice(5, 7)}.${iso.slice(0, 4)}`);
+  for (let i = 0; i < 32; i++) {
+    const at = await d.page.$eval(q("month"), (e) => e.dataset.date);
+    if (at === iso) return;
+    await d.click(at < iso ? "month-next" : "month-prev");
+    await d.page.waitForFunction((s, was) => document.querySelector(s).dataset.date !== was, {}, q("month"), at);
+  }
+  throw new Error(`could not reach ${iso}`);
+};
+const walkMonth = async (d, want) => {
   for (let i = 0; i < 24; i++) {
     const m = await d.page.$eval(q("month"), (e) => e.dataset.month);
     if (m === want) return;
@@ -973,12 +1017,13 @@ await test("a bank CSV imports with a preview, and importing it again adds nothi
 
 await test("a foreign-currency row gets the NBP rate of the previous business day", async () => {
   await fin.ops();
-  await gotoMonth(fin, "10.2026");
+  await gotoDay(fin, "2026-10-30");
   await fin.page.waitForFunction((s) => [...document.querySelectorAll(s)].some((e) => e.textContent.replaceAll("\u00a0", " ").includes("43,01 zł")), {}, ".amount");
 });
 
 await test("a receipt and its card payment count once, after the user agrees", async () => {
   await fin.click("nav-dashboard");
+  await fin.click("tab-summary");
   await gotoMonth(fin, "11.2026");
   const before = await money(fin, "dash-expense");
   await fin.ops();
@@ -987,6 +1032,7 @@ await test("a receipt and its card payment count once, after the user agrees", a
   await fin.click("dup-same");
   await fin.page.waitForFunction((s) => !document.querySelector(s), {}, q("dup-receipt"));
   await fin.click("nav-dashboard");
+  await fin.click("tab-summary");
   await gotoMonth(fin, "11.2026");
   const toNum = (s) => Number(s.replace(/[^\d,]/g, "").replace(",", "."));
   await fin.page.waitForFunction((sel, want) => {
@@ -994,7 +1040,7 @@ await test("a receipt and its card payment count once, after the user agrees", a
     return Math.abs(Number(t) - want) < 0.001;
   }, {}, q("dash-expense"), toNum(before) - 38.86);
   await fin.ops();
-  await gotoMonth(fin, "11.2026");
+  await gotoDay(fin, "2026-11-01");
   await fin.page.waitForSelector(q("tx-linked"));
 });
 
@@ -1003,6 +1049,7 @@ await test("a transfer between own accounts is neither income nor expense", asyn
   await fin.click("import-run");
   await fin.waitText("import-summary", "Imported 1 new operations");
   await fin.click("nav-dashboard");
+  await fin.click("tab-summary");
   await gotoMonth(fin, "10.2026");
   const before = await money(fin, "dash-income");
   await fin.ops();
@@ -1011,6 +1058,7 @@ await test("a transfer between own accounts is neither income nor expense", asyn
   await fin.click("transfer-yes");
   await fin.page.waitForSelector(q("no-duplicates"));
   await fin.click("nav-dashboard");
+  await fin.click("tab-summary");
   await gotoMonth(fin, "10.2026");
   const toNum = (s) => Number(s.replace(/[^\d,]/g, "").replace(",", "."));
   await fin.page.waitForFunction((sel, want) => {
