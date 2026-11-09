@@ -63,8 +63,27 @@ label.check { flex-direction: row; align-items: center; gap: 10px; color: var(--
 .month { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .month strong { font-size: 20px; letter-spacing: .5px; }
 .month > button:not(.month-label) { width: 40px; height: 40px; min-height: 40px; flex: none; font-size: 20px; padding: 0; border-radius: 50%; }
-.filters summary, .table summary { color: var(--muted); font-size: 14px; min-height: 28px; cursor: pointer; }
-.filters { display: flex; flex-direction: column; gap: 8px; } .filters[open] > *:not(summary) { margin-top: 8px; }
+.table summary { color: var(--muted); font-size: 14px; min-height: 28px; cursor: pointer; }
+/* Filters: a small pill that opens a receipt-style card of rows. */
+.filters { display: flex; flex-direction: column; gap: 8px; }
+.filters summary { list-style: none; align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; min-height: 32px;
+  padding: 4px 12px 4px 10px; border: 1px dashed var(--rule); border-radius: 999px; color: var(--muted); font-size: 13px; cursor: pointer;
+  -webkit-user-select: none; user-select: none; }
+.filters summary::-webkit-details-marker { display: none; }
+.filters summary .icon { width: 16px; height: 16px; }
+.filters[open] summary, .filters summary.set { color: var(--fg); border-style: solid; border-color: var(--line); }
+.filters summary.set { border-color: color-mix(in srgb, var(--accent) 60%, transparent); }
+.filters summary .count { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--accent); color: var(--on-accent);
+  font-size: 11px; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; }
+.fpanel .datebox { position: relative; flex: 1; min-width: 0; display: flex; justify-content: flex-end; }
+.fpanel .datebox input { flex: 1; }
+.fpanel .any { position: absolute; right: 0; top: 50%; transform: translateY(-50%); color: var(--muted); font-size: 15px; pointer-events: none; }
+.rform.fpanel .f input.empty { color: transparent; }
+.rform.fpanel .f input.empty::-webkit-calendar-picker-indicator { opacity: 0; }
+.rform.fpanel .f input.empty:focus { color: var(--fg); }
+.fpanel .datebox:focus-within .any { display: none; }
+.fpanel input::-webkit-date-and-time-value { min-height: 1.45em; }
+.filters .link { display: block; margin: -2px 0 0 auto; }
 
 /* Home: two receipt slips, the balance, then days */
 .summary { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding-top: 10px; border-top: 1px dashed var(--rule); }

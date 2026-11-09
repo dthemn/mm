@@ -761,7 +761,15 @@ await test("account filter and period change the numbers", async () => {
   await fin.page.$eval("details.filters", (e) => { e.open = true; });
   await fin.pick("filter-account", "Savings");
   await fin.waitText("dash-expense", "100,00 zł");
-  await fin.pick("filter-account", "All accounts");
+  eq(await fin.text("filter-count"), "1", "the pill counts the filter");
+  ok(await fin.page.$eval(`${q("filters")} summary`, (e) => e.classList.contains("set")), "the pill shows filters are on");
+  await fin.click("filter-clear");
+  await fin.waitText("dash-expense", "187,47 zł");
+  ok(!(await fin.page.$(q("filter-count"))), "no count once cleared");
+  eq(await fin.page.$eval(q("filter-account"), (e) => e.selectedOptions[0].textContent), "All", "account back to All");
+  await fin.pick("filter-account", "Savings");
+  await fin.waitText("dash-expense", "100,00 zł");
+  await fin.pick("filter-account", "All");
   await fin.click("month-prev");
   await fin.waitText("dash-expense", "0,00 zł");
   await fin.click("month-next");

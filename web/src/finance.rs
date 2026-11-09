@@ -142,6 +142,19 @@ fn show_month(c: Ctx, m: Month) {
     c.filter.show_day(day);
 }
 
+/// A date row of the filters. An empty one says "Any": Safari shows nothing in an empty date field.
+fn date_field(label: &'static str, test: &'static str, value: RwSignal<String>) -> impl IntoView {
+    view! {
+        <label class="f">{label}
+            <span class="datebox">
+                <span class="any" hidden=move || !value.with(String::is_empty)>"Any"</span>
+                <input type="date" data-test=test class:empty=move || value.with(String::is_empty)
+                    prop:value=move || value.get() on:input=move |e| value.set(event_target_value(&e)) />
+            </span>
+        </label>
+    }
+}
+
 /// What the arrows beside the period move by.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Step {
@@ -227,6 +240,14 @@ fn filters(c: Ctx, step: Step) -> impl IntoView {
         Step::Day => f.day.get().day_label(today().year),
         Step::Month => f.month.get().long(),
     };
+    // A custom period counts as one filter.
+    let active = move || usize::from(f.custom()) + usize::from(f.account.get().is_some()) + usize::from(f.category.get().is_some());
+    let clear = move |_| {
+        f.from.set(String::new());
+        f.to.set(String::new());
+        f.account.set(None);
+        f.category.set(None);
+    };
     view! {
         <div class="month">
             <button aria-label="Previous" data-test="month-prev" on:click=move |_| shift(-1)>"‹"</button>
@@ -237,32 +258,32 @@ fn filters(c: Ctx, step: Step) -> impl IntoView {
             <button aria-label="Next" data-test="month-next" on:click=move |_| shift(1)>"›"</button>
         </div>
         {move || f.picker.get().then(|| picker(c))}
-        <details class="filters">
-            <summary>"Filters"</summary>
-            <div class="row">
-                <label>"From"
-                    <input type="date" data-test="filter-from" prop:value=move || f.from.get() on:input=move |e| f.from.set(event_target_value(&e)) />
+        <details class="filters" data-test="filters">
+            <summary class:set=move || active() != 0>
+                {icon(Icon::Filter)}"Filters"
+                {move || (active() > 0).then(|| view! { <span class="count" data-test="filter-count">{active()}</span> })}
+            </summary>
+            <div class="rform fpanel">
+                {date_field("From", "filter-from", f.from)}
+                {date_field("To", "filter-to", f.to)}
+                <label class="f">"Account"
+                    <select data-test="filter-account" on:change=move |e| f.account.set(event_target_value(&e).parse().ok())>
+                        <option value="" selected=move || f.account.get().is_none()>"All"</option>
+                        {move || c.data.with(Data::account_list).into_iter().map(|(id, a)| view! {
+                            <option value=id.to_string() selected=move || f.account.get() == Some(id)>{a.name}</option>
+                        }).collect_view()}
+                    </select>
                 </label>
-                <label>"To"
-                    <input type="date" data-test="filter-to" prop:value=move || f.to.get() on:input=move |e| f.to.set(event_target_value(&e)) />
+                <label class="f">"Category"
+                    <select data-test="filter-category" on:change=move |e| f.category.set(event_target_value(&e).parse().ok())>
+                        <option value="" selected=move || f.category.get().is_none()>"All"</option>
+                        {move || c.data.with(Data::active_categories).into_iter().map(|(id, x)| view! {
+                            <option value=id.to_string() selected=move || f.category.get() == Some(id)>{x.name}</option>
+                        }).collect_view()}
+                    </select>
                 </label>
             </div>
-            <label>"Account"
-                <select data-test="filter-account" on:change=move |e| f.account.set(event_target_value(&e).parse().ok())>
-                    <option value="" selected=move || f.account.get().is_none()>"All accounts"</option>
-                    {move || c.data.with(Data::account_list).into_iter().map(|(id, a)| view! {
-                        <option value=id.to_string() selected=move || f.account.get() == Some(id)>{a.name}</option>
-                    }).collect_view()}
-                </select>
-            </label>
-            <label>"Category"
-                <select data-test="filter-category" on:change=move |e| f.category.set(event_target_value(&e).parse().ok())>
-                    <option value="" selected=move || f.category.get().is_none()>"All categories"</option>
-                    {move || c.data.with(Data::active_categories).into_iter().map(|(id, x)| view! {
-                        <option value=id.to_string() selected=move || f.category.get() == Some(id)>{x.name}</option>
-                    }).collect_view()}
-                </select>
-            </label>
+            <button class="link" data-test="filter-clear" hidden=move || active() == 0 on:click=clear>"Clear filters"</button>
         </details>
     }
 }
