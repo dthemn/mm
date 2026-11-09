@@ -306,13 +306,20 @@ pub fn App() -> impl IntoView {
         c.screen.set(if known { Screen::Locked } else { Screen::Welcome });
     });
 
+    Effect::new(move |_| {
+        if c.screen.get() != Screen::Welcome
+            && let Some(root) = web_sys::window().and_then(|w| w.document()).and_then(|d| d.document_element())
+        {
+            let _ = root.set_attribute("lang", "en");
+        }
+    });
     view! {
         <main data-test="app">
             {move || (!c.error.get().is_empty()).then(|| view! { <p class="error" data-test="error">{c.error.get()}</p> })}
             {move || match c.screen.get() {
                 Screen::Loading => view! { <p>"Loading…"</p> }.into_any(),
                 Screen::Insecure => insecure().into_any(),
-                Screen::Welcome => welcome(c).into_any(),
+                Screen::Welcome => crate::landing::welcome(c).into_any(),
                 Screen::Invite => invite(c).into_any(),
                 Screen::Warning => warning(c).into_any(),
                 Screen::ShowPhrase => show_phrase(c).into_any(),
@@ -344,64 +351,6 @@ fn insecure() -> impl IntoView {
         <p data-test="insecure">"This address is not secure: "<strong>{here}</strong></p>
         <p>"On such a page the browser turns off passkeys, the camera, offline mode and safe storage, so the app cannot keep your data safe."</p>
         <p>"On this computer, open "<strong>"http://localhost:8080"</strong>". On a phone, use an address that starts with https://, as described in docs/DEPLOY.md."</p>
-    }
-}
-
-/// The front page for someone without an account on this device: what mm is, how it looks, and the two ways in.
-fn welcome(c: Ctx) -> impl IntoView {
-    let register = move |_| c.screen.set(Screen::Invite);
-    let login = move |_| c.screen.set(Screen::Locked);
-    let features = [
-        ("Photo to saved receipt", "3 taps"),
-        ("Text recognition", "on phone"),
-        ("Lines by category", "automatic"),
-        ("Bank CSV import", "no doubles"),
-        ("Charts, search", "any item"),
-        ("Family members", "own keys"),
-    ];
-    let lines = features.into_iter().map(|(k, v)| view! { <li class="line"><span>{k}</span><span class="num">{v}</span></li> }).collect_view();
-    view! {
-        <section class="landing" data-test="landing">
-            <header class="hero">
-                <p class="brand"><span class="logo">"mm"</span>"family money"</p>
-                <h1>"Every złoty, kept like a receipt."</h1>
-                <p class="lead">"A family tracker for spending and income in Poland. Photograph a receipt and your phone reads it. Your data is encrypted before it leaves the device."</p>
-                <div class="cta">
-                    <button class="primary" data-test="go-register" on:click=register>"Create account"</button>
-                    <button data-test="go-login" on:click=login>"Sign in"</button>
-                </div>
-                <p class="hint center">"New accounts need an invite."</p>
-            </header>
-            <div class="shots" data-test="shots">
-                <figure>
-                    <img src="/shot-dark.webp" width="390" height="844" alt="Home in the dark theme: spent and income for the month, then operations by day" />
-                    <figcaption>"Dark"</figcaption>
-                </figure>
-                <figure>
-                    <img src="/shot-light.webp" width="390" height="844" alt="Stats in the light theme: a ring of spending by category with shares" />
-                    <figcaption>"Light"</figcaption>
-                </figure>
-            </div>
-            <div class="slip receipt">
-                <p class="receipt-head">"What you get"</p>
-                <ul class="receipt-lines">{lines}</ul>
-                <p class="line total"><span>"Server sees"</span><strong>"ciphertext"</strong></p>
-            </div>
-            <h2>"How it works"</h2>
-            <ol class="steps">
-                <li><strong>"Create an account"</strong><span class="hint">"With an invite and a passkey: Face ID, a fingerprint or the device code. Write down 12 backup words."</span></li>
-                <li><strong>"Add what you spend"</strong><span class="hint">"A receipt photo, a bank statement, or by hand. The app finds the shop, date, total and every line."</span></li>
-                <li><strong>"See where it goes"</strong><span class="hint">"By day, month and category, with a search for any item you bought."</span></li>
-            </ol>
-            <div class="cta">
-                <button class="primary" on:click=register>"Create account"</button>
-                <button on:click=login>"Sign in"</button>
-            </div>
-            <footer class="foot" data-test="footer">
-                <a href="mailto:contact@dthem.com">"contact@dthem.com"</a>
-                <span class="hint">"mm · open source · "<a href="https://github.com/dthemn/mm" rel="noopener">"GitHub"</a></span>
-            </footer>
-        </section>
     }
 }
 
@@ -536,7 +485,8 @@ fn locked(c: Ctx) -> impl IntoView {
         Ok(())
     });
     view! {
-        <h1>"mm"</h1>
+        {crate::landing::brand()}
+        <h1>"Welcome back"</h1>
         <button class="primary" data-test="login" disabled=move || c.busy.get() on:click=unlock>"Sign in with passkey"</button>
         {waiting(c)}
         <button data-test="go-recover" on:click=move |_| { c.error.set(String::new()); c.screen.set(Screen::Phrase(false)) }>"I lost my passkey"</button>

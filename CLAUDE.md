@@ -62,7 +62,8 @@ Principles, highest priority first:
 - Home Summary shows rings by category for expenses and income; a tap opens the category. Categories, merchants and
   accounts are receipt cards (`.slipcard`), one row per entry with a badge and its use, opening in place to edit.
   (`.sheet` is the calendar bottom sheet, do not reuse it.)
-- The Welcome screen is the front page for visitors: what mm is, a dark and a light screenshot, Create account and
+- The app is named "Money manager (mm)". The Welcome screen (`web/src/landing.rs`) is the only translated page: EN, PL, RU, UK,
+  picked from `localStorage.mmLang` or the browser. The front page for visitors shows what mm is, a dark and a light screenshot, Create account and
   Sign in, footer contact@dthem.com. The screenshots `web/static/shot-*.webp` come from made-up data via `node e2e/shots.mjs`;
   never replace them with screens of real data.
 - Categories are English: Food, Household, Subscriptions, Transport, Health, Clothing, Entertainment,

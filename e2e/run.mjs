@@ -1227,7 +1227,21 @@ await test("the front page says what mm is, shows both themes, the two ways in a
   const p = tablet.page;
   await p.waitForSelector(q("landing"));
   if (process.env.SHOT_LANDING) { await p.setViewport({ width: 390, height: 844, deviceScaleFactor: 1 }); await p.$eval("main", (m) => m.scrollTo(0, 0)); await p.screenshot({ path: process.env.SHOT_LANDING, fullPage: false }); await p.$eval("main", (m) => m.scrollTo(0, 820)); await p.screenshot({ path: process.env.SHOT_LANDING + "2.png" }); await p.$eval("main", (m) => m.scrollTo(0, 99999)); await p.screenshot({ path: process.env.SHOT_LANDING + "3.png" }); }
-  ok((await p.title()).includes("expense tracker"), "the title says what it is");
+  eq(await p.title(), "Money manager (mm)", "the name in the title");
+  eq(await p.$eval(q("brand"), (e) => e.textContent), "Money manager (mm)", "the name on the page");
+  // Four languages; the choice stays on this device and sets the page language.
+  const head = () => p.$eval(q("headline"), (e) => e.textContent);
+  eq(await head(), "Every expense, kept like a receipt.", "English for an English browser");
+  for (const [code, want] of [["pl", "Każdy wydatek"], ["ru", "Каждый расход"], ["uk", "Кожна витрата"]]) {
+    await p.click(q(`lang-${code}`));
+    await p.waitForFunction((s, w) => document.querySelector(s).textContent.startsWith(w), {}, q("headline"), want);
+    eq(await p.evaluate(() => document.documentElement.lang), code, `html lang ${code}`);
+  }
+  await p.reload({ waitUntil: "load" });
+  await p.waitForSelector(q("landing"));
+  ok((await head()).startsWith("Кожна витрата"), "the language is kept after a reload");
+  ok(!(await p.content()).toLowerCase().includes("złoty"), "no złoty in the slogan");
+  await p.click(q("lang-en"));
   const shots = await p.$$eval(`${q("shots")} img`, (a) => Promise.all(a.map((i) => i.decode().then(() => [i.getAttribute("src"), i.naturalWidth]))));
   eq(shots.map((x) => x[0]), ["/shot-dark.webp", "/shot-light.webp"], "a dark and a light screenshot");
   ok(shots.every((x) => x[1] === 780), `both load: ${shots}`);

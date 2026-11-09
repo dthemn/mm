@@ -9,6 +9,7 @@ mod finance;
 mod flows;
 mod icons;
 mod import;
+mod landing;
 mod scan;
 mod store;
 mod webauthn;

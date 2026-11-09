@@ -305,10 +305,13 @@ details[open] > summary .chev { transform: rotate(90deg); }
 
 /* Front page for visitors without an account. */
 .landing { display: flex; flex-direction: column; gap: 18px; }
-.hero { display: flex; flex-direction: column; gap: 12px; padding-top: 8px; }
-.brand { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 14px; letter-spacing: 1px; text-transform: uppercase; }
-.logo { font-weight: 800; font-size: 20px; letter-spacing: 0; text-transform: none; padding: 2px 10px; border-radius: 8px; background: var(--accent); color: var(--on-accent); }
-.hero h1 { font-size: clamp(28px, 8.5vw, 38px); line-height: 1.1; margin: 4px 0 0; }
+.hero-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 8px; flex-wrap: wrap; }
+.brand { display: flex; align-items: center; gap: 2px; color: var(--muted); font-size: 15px; white-space: nowrap; }
+.logo { font-weight: 800; color: var(--accent); }
+.langs { display: flex; gap: 2px; border: 1px solid var(--line); border-radius: 8px; padding: 2px; }
+.langs button { width: auto; min-height: 32px; padding: 2px 8px; border: 0; border-radius: 6px; font-size: 13px; color: var(--muted); }
+.langs button.active { background: var(--fg); color: var(--bg); font-weight: 700; }
+.landing h1 { font-size: clamp(28px, 8.5vw, 38px); line-height: 1.1; margin: 0; }
 .lead { color: var(--muted); font-size: 16px; }
 .cta { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .shots { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; padding: 6px 4px 18px; }
