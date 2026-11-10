@@ -32,6 +32,8 @@ const WORDS: &[(Uuid, &[&str])] = &[
         "szampon", "mydlo", "zel pod", "zel do", "zel odsw", "odsw", "dezodorant", "pasta do zebow", "szczoteczk", "krem", "balsam", "proszek",
         "plyn do", "kapsulk", "domestos", "ludwik", "papier toalet", "recznik", "chusteczk", "worki", "gabk", "sciereczk",
         "drogeryj", "wybielacz", "plyn", "tekstylia domowe", "bateri", "zarowk",
+        // Home bills, as transfer titles name them.
+        "czynsz", "najem", "wynajem", "mieszkani", "gaz ", "prad ", "ogrzewani", "wywoz smieci",
     ]),
     (CAT_HEALTH, &[
         "apteka", "lek ", "tabletk", "kapsulki", "syrop", "witamin", "bandaz", "plaster", "recept", "sasz", "aer ", "masc",

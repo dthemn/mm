@@ -21,11 +21,16 @@ encoding_rs = "0.8"
 p256 = { version = "0.13", features = ["ecdsa"] }
 sha2 = "0.10"
 zeroize = { version = "1", features = ["derive"] }
+# PDF statements and transfer confirmations: objects, streams and passwords, and the embedded fonts' maps
+# for letters a PDF writes as glyph numbers.
+lopdf = { version = "0.47", default-features = false }
+ttf-parser = "0.25"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { version = "0.3", features = ["wasm_js"] }
 # The older version comes in through RustCrypto and must also target the browser.
 getrandom02 = { package = "getrandom", version = "0.2", features = ["js"] }
+lopdf = { version = "0.47", default-features = false, features = ["wasm_js"] }
 
 [dev-dependencies]
 pollster = "0.4"

@@ -112,6 +112,10 @@ All records live inside the ciphertext. Each is one sync record, so merging work
 
 Internal transfers, recurring payments and deduplication arrive with statement import, as they depend on it.
 
+Statements and transfer confirmations are read on the device, like photos: a CSV through a column mapping, a PDF
+through `core::pdf` (its text layer, no OCR) and `core::confirmation`. A PDF's password is typed on the page and kept
+only in memory while the file is open. Only the resulting encrypted operations are synced.
+
 ## 5. Threat model
 
 | Actor or event | What they get | Protection | Residual risk |

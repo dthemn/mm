@@ -1420,7 +1420,7 @@ pub fn edit(c: Ctx, id: Option<Uuid>) -> impl IntoView {
                 {icon(Icon::Upload)}
                 <span>"Upload a receipt, PDF or statement"</span>
                 <input type="file" class="file" data-test="upload-file" disabled=move || c.busy.get()
-                    accept="image/*,.pdf,application/pdf,.csv,text/csv,text/plain" on:change=upload />
+                    accept="image/*,.pdf,application/pdf,.csv,text/csv,text/plain" multiple on:change=upload />
             </label>
             <p class="hint" data-test="upload-status">{move || upload_status.get()}</p>
         })}

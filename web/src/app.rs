@@ -61,7 +61,8 @@ pub struct Ctx {
     /// A recognized receipt waiting for review. It never contains the photo.
     pub draft: StoredValue<Option<finance::Draft>, LocalStorage>,
     /// A statement chosen on the Add screen, read by the import screen. Never leaves the device.
-    pub upload: StoredValue<Option<(String, Vec<u8>)>, LocalStorage>,
+    /// Files chosen on the Add screen for the import screen: a CSV statement, or PDFs.
+    pub upload: StoredValue<Vec<(String, Vec<u8>)>, LocalStorage>,
     phrase: StoredValue<Option<Rc<Phrase>>, LocalStorage>,
     label: RwSignal<String>,
     /// A new passkey must be added after recovery.
@@ -268,7 +269,7 @@ pub fn App() -> impl IntoView {
         session: RwSignal::new_local(None),
         data: RwSignal::new(Data::default()),
         draft: StoredValue::new_local(None),
-        upload: StoredValue::new_local(None),
+        upload: StoredValue::new_local(Vec::new()),
         filter: finance::FilterState::new(Month { year: today().year, month: today().month }),
         status: RwSignal::new(String::new()),
         issues: RwSignal::new(vec![]),
@@ -577,7 +578,7 @@ fn settings(c: Ctx) -> impl IntoView {
         <button data-test="manage-categories" on:click=move |_| c.screen.set(Screen::Manage(finance::Manage::Categories))>"Categories"</button>
         <button data-test="manage-accounts" on:click=move |_| c.screen.set(Screen::Manage(finance::Manage::Accounts))>"Accounts"</button>
         <button data-test="manage-merchants" on:click=move |_| c.screen.set(Screen::Manage(finance::Manage::Merchants))>"Merchants"</button>
-        <button data-test="go-import" on:click=move |_| c.screen.set(Screen::Import)>"Import a bank statement"</button>
+        <button data-test="go-import" on:click=move |_| c.screen.set(Screen::Import)>"Import a statement or PDFs"</button>
         <button data-test="go-export" on:click=move |_| c.screen.set(Screen::Export)>"Export data"</button>
         <h2>"New passkey"</h2>
         {move || c.need_passkey.get().then(|| view! { <p class="error" data-test="need-passkey">"Add a new passkey to sign in without the 12 words again."</p> })}

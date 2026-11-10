@@ -176,6 +176,8 @@ pub struct Row {
     pub counterparty: String,
     /// How many identical operations came earlier in this file, so two equal coffees on one day stay two.
     pub ordinal: usize,
+    /// What the bank booked in złoty, when `currency` is another one. Without it the NBP rate is used.
+    pub pln: Option<i64>,
 }
 
 fn cell(r: &[String], i: Option<usize>) -> &str {
@@ -215,7 +217,7 @@ pub fn rows(t: &Table, m: &Mapping) -> (Vec<Row>, Vec<(usize, String)>) {
         let description = cell(r, m.description).to_string();
         let counterparty = cell(r, m.counterparty).to_string();
         let ordinal = ok.iter().filter(|x: &&Row| x.date == date && x.amount == amount && fold(&x.description) == fold(&description)).count();
-        ok.push(Row { line, date, amount, currency, description, counterparty, ordinal });
+        ok.push(Row { line, date, amount, currency, description, counterparty, ordinal, pln: None });
     }
     (ok, bad)
 }

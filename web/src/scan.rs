@@ -343,20 +343,29 @@ pub fn open_upload(c: Ctx, input: web_sys::HtmlInputElement, status: RwSignal<St
                 None => Ok(()),
             }
         }),
-        FileKind::Table => spawn_local(async move {
-            match JsFuture::from(file.array_buffer()).await {
-                Ok(buf) => {
-                    c.upload.set_value(Some((file.name(), js_sys::Uint8Array::new(&buf).to_vec())));
-                    c.screen.set(Screen::Import);
+        // A CSV statement, or one or more PDFs: transfer confirmations are often saved one per payment.
+        kind @ (FileKind::Table | FileKind::Pdf) => spawn_local(async move {
+            let list = input.files();
+            let count = list.as_ref().map_or(0, |l| l.length());
+            let mut files = Vec::new();
+            for i in 0..count {
+                let Some(f) = list.as_ref().and_then(|l| l.get(i)) else { continue };
+                if i > 0 && (kind == FileKind::Table || file_kind(&f.type_(), &f.name()) != FileKind::Pdf) {
+                    continue;
                 }
-                Err(_) => c.error.set("The file could not be read".into()),
+                match JsFuture::from(f.array_buffer()).await {
+                    Ok(buf) => files.push((f.name(), js_sys::Uint8Array::new(&buf).to_vec())),
+                    Err(_) => {
+                        c.error.set("The file could not be read".into());
+                        input.set_value("");
+                        return;
+                    }
+                }
             }
             input.set_value("");
+            c.upload.set_value(files);
+            c.screen.set(Screen::Import);
         }),
-        FileKind::Pdf => {
-            input.set_value("");
-            c.error.set("PDF statements and invoices are not supported yet. Export the statement as CSV in your bank's app, or photograph a receipt".into());
-        }
         FileKind::Unknown => {
             input.set_value("");
             c.error.set("Choose a receipt photo, a PDF or a CSV statement".into());

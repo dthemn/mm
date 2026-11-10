@@ -60,16 +60,66 @@ enum Status {
     Known,
 }
 
-fn read_file(input: web_sys::HtmlInputElement, done: impl FnOnce(Result<(String, Vec<u8>), String>) + 'static) {
+/// Every chosen file, read on this device.
+fn read_files(input: web_sys::HtmlInputElement, done: impl FnOnce(Result<Vec<(String, Vec<u8>)>, String>) + 'static) {
     spawn_local(async move {
         let res = async {
-            let file = input.files().and_then(|f| f.get(0)).ok_or("No file was chosen")?;
-            let buf = JsFuture::from(file.array_buffer()).await.map_err(|_| "The file could not be read")?;
-            Ok::<_, String>((file.name(), Uint8Array::new(&buf).to_vec()))
+            let list = input.files().ok_or("No file was chosen")?;
+            let mut out = Vec::new();
+            for i in 0..list.length() {
+                let Some(file) = list.get(i) else { continue };
+                let buf = JsFuture::from(file.array_buffer()).await.map_err(|_| "The file could not be read")?;
+                out.push((file.name(), Uint8Array::new(&buf).to_vec()));
+            }
+            if out.is_empty() { Err("No file was chosen".to_string()) } else { Ok(out) }
         }.await;
         input.set_value("");
         done(res);
     });
+}
+
+fn is_pdf(name: &str, bytes: &[u8]) -> bool {
+    bytes.starts_with(b"%PDF") || name.to_ascii_lowercase().ends_with(".pdf")
+}
+
+/// What was read from the chosen files.
+#[derive(Clone)]
+enum Loaded {
+    /// A CSV statement, read through the column mapping.
+    Csv(Table),
+    /// Operations read from PDFs, with the files that gave none and why.
+    Pdf(Vec<Row>, Vec<String>),
+}
+
+/// A chosen file: its name and bytes.
+type File = (String, Vec<u8>);
+
+/// PDFs into operations, the files skipped and why, the files that need a password (to be tried again
+/// with one), and whether a password was given and wrong.
+fn read_pdfs(files: &[File], password: Option<&str>) -> (Vec<Row>, Vec<String>, Vec<File>, bool) {
+    let (mut rows, mut skipped, mut locked, mut wrong) = (Vec::new(), Vec::new(), Vec::new(), false);
+    for (name, bytes) in files {
+        match mm_core::pdf::read(bytes, password) {
+            Ok(pages) => match mm_core::confirmation::read(&pages) {
+                Some(c) => {
+                    let r = c.row(rows.len() + 1);
+                    // The same file chosen twice is one operation.
+                    if !rows.contains(&r) {
+                        rows.push(r);
+                    }
+                }
+                None => skipped.push(format!("{name}: not a transfer confirmation. So far mm reads Bank Millennium's \
+                    confirmations; for a statement, export it as CSV")),
+            },
+            Err(mm_core::pdf::PdfError::NeedPassword) => locked.push((name.clone(), bytes.clone())),
+            Err(mm_core::pdf::PdfError::WrongPassword) => {
+                wrong = true;
+                locked.push((name.clone(), bytes.clone()));
+            }
+            Err(e) => skipped.push(format!("{name}: {e}")),
+        }
+    }
+    (rows, skipped, locked, wrong)
 }
 
 fn column_select(header: Vec<String>, sig: RwSignal<Option<usize>>, label: &'static str, test: &'static str) -> impl IntoView {
@@ -86,49 +136,100 @@ fn column_select(header: Vec<String>, sig: RwSignal<Option<usize>>, label: &'sta
 }
 
 pub fn import(c: Ctx) -> impl IntoView {
-    let table: RwSignal<Option<Table>> = RwSignal::new(None);
+    let loaded: RwSignal<Option<Loaded>> = RwSignal::new(None);
     let name = RwSignal::new(String::new());
     let cols: [RwSignal<Option<usize>>; 7] = std::array::from_fn(|_| RwSignal::new(None));
     let [date, amount, debit, credit, currency, description, counterparty] = cols;
     let account = RwSignal::new(c.data.with_untracked(|d| d.account_list().first().map(|a| a.0)).unwrap_or(ACCOUNT_MAIN));
     let summary = RwSignal::new(String::new());
+    // PDFs that need a password, kept on this device until it is typed.
+    let locked: StoredValue<Vec<(String, Vec<u8>)>, LocalStorage> = StoredValue::new_local(Vec::new());
+    let need_password = RwSignal::new(false);
+    let password = RwSignal::new(String::new());
 
     let mapping = move || Mapping {
         date: date.get(), amount: amount.get(), debit: debit.get(), credit: credit.get(),
         currency: currency.get(), description: description.get(), counterparty: counterparty.get(),
     };
-    let load = move |res: Result<(String, Vec<u8>), String>| match res {
-            Err(e) => c.error.set(e),
-            Ok((file, bytes)) => {
-                let t = import::parse_csv(&import::decode(&bytes));
-                if t.rows.is_empty() {
-                    c.error.set("No table was found in this file. Choose a CSV export from your bank".into());
-                    return;
-                }
-                let g = import::guess(&t.header);
-                for (sig, v) in cols.iter().zip([g.date, g.amount, g.debit, g.credit, g.currency, g.description, g.counterparty]) {
-                    sig.set(v);
-                }
-                c.error.set(String::new());
-                summary.set(String::new());
-                name.set(file);
-                table.set(Some(t));
+    let rows_now = move || -> (Vec<Row>, Vec<String>) {
+        match loaded.get() {
+            Some(Loaded::Csv(t)) => {
+                let (rows, bad) = import::rows(&t, &mapping());
+                let bad = bad.iter().take(3).map(|(l, why)| format!("row {l}, {why}")).collect();
+                (rows, bad)
             }
+            Some(Loaded::Pdf(rows, skipped)) => (rows, skipped),
+            None => (vec![], vec![]),
+        }
+    };
+    // PDFs: what they hold is added to what is already loaded, so locked files can follow later.
+    let add_pdfs = move |files: Vec<(String, Vec<u8>)>, pw: Option<String>| {
+        let (rows, skipped, still, wrong) = read_pdfs(&files, pw.as_deref());
+        let (mut all, mut why) = match loaded.get_untracked() {
+            Some(Loaded::Pdf(r, s)) if pw.is_some() => (r, s),
+            _ => (vec![], vec![]),
+        };
+        for r in rows {
+            if !all.iter().any(|x| x.date == r.date && x.amount == r.amount && x.description == r.description) {
+                let line = all.len() + 1;
+                all.push(Row { line, ..r });
+            }
+        }
+        why.extend(skipped);
+        need_password.set(!still.is_empty());
+        locked.set_value(still);
+        password.set(String::new());
+        c.error.set(if wrong { "The password is wrong".into() } else { String::new() });
+        if all.is_empty() && why.is_empty() {
+            loaded.set(None);
+        } else {
+            loaded.set(Some(Loaded::Pdf(all, why)));
+        }
+    };
+    let load = move |res: Result<Vec<(String, Vec<u8>)>, String>| match res {
+        Err(e) => c.error.set(e),
+        Ok(files) => {
+            summary.set(String::new());
+            name.set(files.iter().map(|f| f.0.as_str()).collect::<Vec<_>>().join(", "));
+            if files.iter().any(|(n, b)| is_pdf(n, b)) {
+                add_pdfs(files.into_iter().filter(|(n, b)| is_pdf(n, b)).collect(), None);
+                return;
+            }
+            need_password.set(false);
+            let t = import::parse_csv(&import::decode(&files[0].1));
+            if t.rows.is_empty() {
+                c.error.set("No table was found in this file. Choose a CSV export or a transfer confirmation PDF from your bank".into());
+                return;
+            }
+            let g = import::guess(&t.header);
+            for (sig, v) in cols.iter().zip([g.date, g.amount, g.debit, g.credit, g.currency, g.description, g.counterparty]) {
+                sig.set(v);
+            }
+            c.error.set(String::new());
+            loaded.set(Some(Loaded::Csv(t)));
+        }
     };
     let pick = move |ev: leptos::ev::Event| {
         let Some(input) = ev.target().and_then(|t| t.dyn_into::<web_sys::HtmlInputElement>().ok()) else { return };
-        read_file(input, load);
+        read_files(input, load);
     };
-    // A statement chosen on the Add screen.
-    let mut waiting = None;
-    c.upload.update_value(|u| waiting = u.take());
-    if let Some(f) = waiting {
-        load(Ok(f));
+    let unlock = move |_| {
+        let pw = password.get_untracked();
+        if pw.is_empty() {
+            return;
+        }
+        add_pdfs(locked.get_value(), Some(pw));
+    };
+    // Files chosen on the Add screen.
+    let mut waiting = Vec::new();
+    c.upload.update_value(|u| waiting = std::mem::take(u));
+    if !waiting.is_empty() {
+        load(Ok(waiting));
     }
     let preview = move || {
-        let t = table.get()?;
+        loaded.get()?;
         let s = c.session.get()?;
-        let (rows, bad) = import::rows(&t, &mapping());
+        let (rows, bad) = rows_now();
         let known: std::collections::HashSet<Uuid> = c.data.with(|d| d.txs.iter().map(|t| t.0).collect());
         let acc = account.get();
         let marked: Vec<(Row, Status)> = rows.into_iter().map(|r| {
@@ -140,7 +241,8 @@ pub fn import(c: Ctx) -> impl IntoView {
             <li class="txrow" data-test="import-row">
                 <span class="grow">
                     <span class="name">{if r.counterparty.is_empty() { r.description.clone() } else { r.counterparty.clone() }}</span>
-                    <span class="hint">{r.date.display()}{if *st == Status::Known { " · already imported" } else { "" }}</span>
+                    <span class="hint">{r.date.display()}{(!r.counterparty.is_empty() && !r.description.is_empty()).then(|| format!(" · {}", r.description))}
+                        {if *st == Status::Known { " · already imported" } else { "" }}</span>
                 </span>
                 <span class="amount" class:income=incoming><span>{format_money(r.amount, &r.currency)}</span></span>
             </li>
@@ -148,16 +250,18 @@ pub fn import(c: Ctx) -> impl IntoView {
         Some(view! {
             <p data-test="import-counts">{format!("{} operations, {} new, {} already imported", marked.len(), fresh, marked.len() - fresh)}</p>
             {(!bad.is_empty()).then(|| view! {
-                <p class="warn" data-test="import-skipped">{format!("{} rows skipped: {}", bad.len(),
-                    bad.iter().take(3).map(|(l, why)| format!("row {l}, {why}")).collect::<Vec<_>>().join("; "))}</p>
+                <p class="warn" data-test="import-skipped">{format!("{} skipped: {}", bad.len(), bad.join("; "))}</p>
             })}
             <ul class="txs">{list}</ul>
         })
     };
     let run = move |_| busy_task(c, async move {
         let s = session(c)?;
-        let t = table.get_untracked().ok_or("Choose a file first")?;
-        let (rows, _) = import::rows(&t, &mapping());
+        let (rows, _) = rows_now();
+        if rows.is_empty() {
+            return Err("Choose a file first".into());
+        }
+        let from_pdf = matches!(loaded.get_untracked(), Some(Loaded::Pdf(..)));
         let acc = account.get_untracked();
         let d = c.data.get_untracked();
         let rules = d.rule_list();
@@ -170,19 +274,19 @@ pub fn import(c: Ctx) -> impl IntoView {
                 continue;
             }
             let amount = r.amount.abs();
-            let (amount_pln, review) = if r.currency == "PLN" {
-                (amount, Review::Reviewed)
-            } else {
-                match nbp_rate(&r.currency, r.date, &mut rates).await? {
+            let (amount_pln, review) = match (r.currency.as_str(), r.pln) {
+                ("PLN", _) => (amount, Review::Reviewed),
+                (_, Some(pln)) => (pln, Review::Reviewed),
+                _ => match nbp_rate(&r.currency, r.date, &mut rates).await? {
                     Some((_, rate)) => (convert(amount, rate).ok_or("amount too large")?, Review::Reviewed),
                     None => return Err(format!("No NBP rate was found for {} before {}", r.currency, r.date.display())),
-                }
+                },
             };
             let text = [r.counterparty.as_str(), r.description.as_str()].iter().filter(|x| !x.is_empty()).copied().collect::<Vec<_>>().join(" · ");
             let tx = Transaction {
                 kind: if r.amount < 0 { TxKind::Expense } else { TxKind::Income },
                 date: r.date, time: None, merchant_id: None, nip: None, amount, currency: r.currency.clone(), amount_pln,
-                payment: Payment::Card, account_id: acc,
+                payment: if from_pdf { Payment::Transfer } else { Payment::Card }, account_id: acc,
                 category_id: if r.amount < 0 { categorize(&rules, None, &r.counterparty, &r.description) } else { income_category(&text) },
                 source: Source::Statement, review, note: text, items: vec![], mismatch_confirmed: false,
                 duplicate_of: None, unique_confirmed: false,
@@ -195,18 +299,44 @@ pub fn import(c: Ctx) -> impl IntoView {
         reload(c, &s).await;
         let linked = link_sure(c, &s).await?;
         summary.set(format!("Imported {added} new operations. {linked} matched receipts you scanned."));
-        table.set(None);
+        loaded.set(None);
         reload(c, &s).await;
         spawn_local(run_sync(c));
         Ok(())
     });
     view! {
-        <header class="row"><h1>"Import a statement"</h1><button on:click=move |_| c.screen.set(Screen::Settings)>"Back"</button></header>
-        <p class="hint">"Choose a CSV export from your bank. The file is read on this phone and never uploaded."</p>
-        <label class="button">"Choose a CSV file"<input type="file" accept=".csv,text/csv,text/plain" class="file" data-test="import-file" on:change=pick /></label>
+        <header class="row"><h1>"Import"</h1><button on:click=move |_| c.screen.set(Screen::Settings)>"Back"</button></header>
+        <p class="hint">"Choose a CSV statement, or transfer confirmation PDFs (Bank Millennium). Files are read on this phone and never uploaded."</p>
+        <label class="button">"Choose files"<input type="file" accept=".csv,text/csv,text/plain,.pdf,application/pdf" multiple class="file" data-test="import-file" on:change=pick /></label>
         <p data-test="import-summary">{move || summary.get()}</p>
-        {move || table.get().map(|t| {
-            let h = t.header.clone();
+        {move || need_password.get().then(|| view! {
+            <div class="item" data-test="pdf-password-form">
+                <p>{move || format!("{} protected with a password. It stays on this phone.",
+                    match locked.with_value(Vec::len) { 1 => "This PDF is".to_string(), n => format!("{n} PDFs are") })}</p>
+                <label>"PDF password"<input type="password" autocomplete="off" data-test="pdf-password"
+                    prop:value=move || password.get() on:input=move |e| password.set(event_target_value(&e)) /></label>
+                <button class="primary" data-test="pdf-unlock" on:click=unlock>"Open"</button>
+            </div>
+        })}
+        {move || loaded.get().map(|l| {
+            let mapping_ui = match l {
+                Loaded::Csv(t) => {
+                    let h = t.header.clone();
+                    Some(view! {
+                        <details class="filters" open=true>
+                            <summary>"Columns"</summary>
+                            {column_select(h.clone(), date, "Date", "map-date")}
+                            {column_select(h.clone(), amount, "Amount, with a sign", "map-amount")}
+                            {column_select(h.clone(), debit, "Money out", "map-debit")}
+                            {column_select(h.clone(), credit, "Money in", "map-credit")}
+                            {column_select(h.clone(), currency, "Currency", "map-currency")}
+                            {column_select(h.clone(), description, "Description", "map-description")}
+                            {column_select(h, counterparty, "Counterparty", "map-counterparty")}
+                        </details>
+                    })
+                }
+                Loaded::Pdf(..) => None,
+            };
             view! {
                 <p class="hint">{move || name.get()}</p>
                 <label>"Account"
@@ -214,16 +344,7 @@ pub fn import(c: Ctx) -> impl IntoView {
                         {c.data.with_untracked(Data::account_list).into_iter().map(|(i, a)| view! { <option value=i.to_string() selected=move || account.get() == i>{a.name}</option> }).collect_view()}
                     </select>
                 </label>
-                <details class="filters" open=true>
-                    <summary>"Columns"</summary>
-                    {column_select(h.clone(), date, "Date", "map-date")}
-                    {column_select(h.clone(), amount, "Amount, with a sign", "map-amount")}
-                    {column_select(h.clone(), debit, "Money out", "map-debit")}
-                    {column_select(h.clone(), credit, "Money in", "map-credit")}
-                    {column_select(h.clone(), currency, "Currency", "map-currency")}
-                    {column_select(h.clone(), description, "Description", "map-description")}
-                    {column_select(h, counterparty, "Counterparty", "map-counterparty")}
-                </details>
+                {mapping_ui}
                 {preview}
                 <button class="primary" data-test="import-run" disabled=move || c.busy.get() on:click=run>"Import"</button>
             }

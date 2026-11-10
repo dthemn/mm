@@ -1149,11 +1149,12 @@ await test("the Add screen takes a receipt photo, a CSV statement or a PDF", asy
     await fin.click("nav-add");
     return fin.page.waitForSelector(q("upload-file"));
   };
-  // A PDF is not read yet, and says so.
+  // A PDF that cannot be read says so, and nothing is imported.
   const pdf = join(tmpdir(), `mm-${process.pid}.pdf`);
   writeFileSync(pdf, "%PDF-1.4\n%%EOF\n");
   await (await add()).uploadFile(pdf);
-  await fin.waitText("error", "PDF statements and invoices are not supported yet");
+  await fin.waitText("import-skipped", "not a PDF that can be read");
+  eq(await fin.text("import-counts"), "0 operations, 0 new, 0 already imported", "nothing to import");
   // A statement opens the import preview, before anything is saved.
   await (await add()).uploadFile(join(root, "e2e/fixtures", "statement.csv"));
   await fin.waitText("import-counts", "6 operations, 0 new, 6 already imported");
@@ -1165,6 +1166,47 @@ await test("the Add screen takes a receipt photo, a CSV statement or a PDF", asy
   ok(!(await fin.page.$(q("upload"))), "no upload button while checking a receipt");
   await fin.click("form-back");
   await fin.page.waitForSelector(q("dash-balance"));
+});
+
+await test("transfer confirmation PDFs import from the Add screen, a locked one after its password", async () => {
+  const d = await Device.open("pdf");
+  await d.register();
+  const files = ["confirmation-rent.pdf", "confirmation-locked.pdf"].map((f) => join(root, "e2e/fixtures", f));
+  const choose = async () => {
+    await d.click("nav-add");
+    await (await d.page.waitForSelector(q("upload-file"))).uploadFile(...files);
+  };
+  await choose();
+  await d.waitText("import-counts", "1 operations, 1 new, 0 already imported");
+  await d.page.waitForSelector(q("pdf-password-form"));
+  ok((await d.text("pdf-password-form")).includes("This PDF is protected"), "asks for the password");
+  await d.type("pdf-password", "wrong");
+  await d.click("pdf-unlock");
+  await d.waitText("error", "The password is wrong");
+  await d.type("pdf-password", "tajne");
+  await d.click("pdf-unlock");
+  await d.waitText("import-counts", "2 operations, 2 new, 0 already imported");
+  ok(!(await d.page.$(q("pdf-password-form"))), "the password form is gone");
+  ok(!(await d.page.$(q("map-date"))), "no column mapping for PDFs");
+  const rows = await d.page.$$eval(q("import-row"), (a) => a.map((e) => e.textContent.replaceAll("\u00a0", " ")));
+  ok(rows.some((r) => r.includes("ANNA PRZYKŁAD") && r.includes("czynsz 692,60 pln") && r.includes("692,60")), `rent: ${rows}`);
+  ok(rows.some((r) => r.includes("GAZ 91,24 pln") && r.includes("91,24")), `gas: ${rows}`);
+  await d.click("import-run");
+  await d.waitText("import-summary", "Imported 2 new operations");
+  await d.click("nav-dashboard");
+  await gotoDay(d, "2026-11-10");
+  await d.waitText("tx-title", "ANNA PRZYKŁAD");
+  eq((await d.notes()).length, 2, "two operations on the day");
+  await d.click("tx-row");
+  await d.page.waitForSelector(q("detail-title"));
+  ok((await d.page.$eval("main", (e) => e.textContent)).includes("Household"), "a home bill counts as Household");
+  // The same files again add nothing.
+  await choose();
+  await d.waitText("import-counts", "1 operations, 0 new, 1 already imported");
+  await d.type("pdf-password", "tajne");
+  await d.click("pdf-unlock");
+  await d.waitText("import-counts", "2 operations, 0 new, 2 already imported");
+  await d.close();
 });
 
 await test("the form rows fit the screen: label left, value right", async () => {

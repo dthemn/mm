@@ -48,7 +48,7 @@ Principles, highest priority first:
 - The camera is a full-screen overlay. The light button shows only when `getCapabilities().torch` is true; whether
   iPhone Safari offers it is unverified.
 - The operation form is a receipt: label left, value right, dashed rules. On a new operation an upload button takes
-  a receipt photo (recognized), a CSV statement (opens the import preview via `Ctx.upload`) or a PDF (not read yet, says so).
+  a receipt photo (recognized), a CSV statement or transfer confirmation PDFs (open the import preview via `Ctx.upload`).
 - "Stay signed in" (Settings, per device in `localStorage.mmKeep`: 1 min, 1 hour, 12 hours; default 12 hours, the owner's
   choice): the DEK is kept under a separate non-extractable WebCrypto key (`keep:` in `mm-device`), valid only while
   `localStorage.mmKeepUntil` matches, so Lock revokes it at once. iOS drops background pages, so memory alone is not enough.
@@ -81,6 +81,14 @@ Principles, highest priority first:
   opens as a centered dialog, and from 1100 px the ring sits beside its list. The front page puts text and buttons beside
   the screenshots. Phones, even turned sideways (short), keep the bottom tab bar. `node e2e/preview.mjs` (WIDTH, HEIGHT,
   OUT) screenshots every main screen from made-up data; `e2e/demo.mjs` holds the setup it shares with shots.mjs.
+- PDFs are read on the device: `core::pdf` (lopdf, plus ttf-parser for Polish letters that Bank Millennium writes as bare
+  glyph numbers with no ToUnicode map) gives lines of cells; `core::confirmation` reads transfer confirmations
+  ("Potwierdzenie wykonania operacji", one operation per file). Titles are 35-character lines joined without a space when
+  full. Several PDFs can be chosen at once; a locked one asks for its password, which never leaves the page. Checked on
+  three real Millennium confirmations in `samples/statements/millennium/` (git-ignored); the tests use made-up ones
+  (`e2e/fixtures/confirmation-*.pdf`, rewritten with `UPDATE_FIXTURES=1 cargo test -p mm-core`).
+  `cargo run -p mm-core --example pdf_lines -- file.pdf` (LINES=1 for every line) shows how a new bank's PDF reads.
+  PDF statements with many operations and invoices are not read yet.
 - Categories are English: Food, Household, Subscriptions, Transport, Health, Clothing, Entertainment,
   Cafes & restaurants, Other. Built-ins have fixed ids. Merging sets `merged_into` instead of rewriting records.
 
@@ -97,7 +105,7 @@ owner has not added yet. Next: PDF text import, password-protected PDFs, invoice
 | 2. Workspace, passkey login, encryption, sync | done |
 | 3. Manual operations, dashboard, export | done |
 | 4. Receipt from photo to saved operation | works in desktop Chrome; not tried on a phone |
-| 5. Bank statement and invoice import, deduplication | CSV import, dedup, transfers, NBP rates, subscriptions done; bank profiles, PDF and invoices not started |
+| 5. Bank statement and invoice import, deduplication | CSV import, dedup, transfers, NBP rates, subscriptions, Millennium transfer confirmation PDFs (with passwords) done; bank profiles, PDF statements and invoices not started |
 | 6. Subscriptions, PWA polish, backups, deployment | deploy files written, not run on a VPS |
 
 On 2026-11-04 the owner registered with a passkey and synced on an iPhone 13 at https://mm.dthem.com: the app runs
@@ -121,10 +129,10 @@ to home screen and OCR speed on a mid-range Android are still unverified. No VPS
 
 ```sh
 docker compose -f compose.dev.yml up -d        # throwaway test DB on 127.0.0.1:55432
-cargo test -p mm-core                          # 159 tests
-cargo test -p mm-server                        # 22 tests, needs the test DB
+cargo test -p mm-core                          # 170 tests
+cargo test -p mm-server                        # 23 tests, needs the test DB
 web/build.sh && cargo build -p mm-server
-node e2e/run.mjs > /tmp/e2e.log 2>&1           # 61 tests; write to a file, never pipe into head or tail
+node e2e/run.mjs > /tmp/e2e.log 2>&1           # 62 tests; write to a file, never pipe into head or tail
 LIMIT=90000 node e2e/scan.mjs                  # real receipts in samples/receipts, prints scores only
 SHOW=1 ...                                     # also prints recognized lines (sets localStorage.mmDebug)
 docker compose up --build -d                   # whole app on http://localhost:8080 (use localhost, not 127.0.0.1)
@@ -167,7 +175,7 @@ Gotchas learned the hard way:
   and they were used for tuning. Needs 30 to 50 receipts with a held-out third.
 - No CI yet with `cargo audit` and `cargo deny`.
 - No backups. Restoring an old database lowers `seq` below device cursors, so a restore epoch is needed first.
-- No bank-specific statement profiles, no PDF import, no invoices yet.
+- No bank-specific statement profiles, no PDF statements with many operations, no invoices yet.
 - A second open tab blocks erasing local data until it closes.
 - Lines of the original spec were cut off when pasted: the end of the category list, the `Transaction` fields
   between payment method and source, and minimum iOS and Android versions. The current choices are guesses.

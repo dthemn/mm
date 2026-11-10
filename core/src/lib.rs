@@ -5,6 +5,7 @@
 pub mod analytics;
 pub mod api;
 pub mod categorize;
+pub mod confirmation;
 pub mod crypto;
 pub mod date;
 pub mod dedup;
@@ -12,6 +13,7 @@ pub mod export;
 pub mod import;
 pub mod model;
 pub mod money;
+pub mod pdf;
 pub mod ocr;
 pub mod receipt;
 pub mod record;
