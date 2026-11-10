@@ -149,9 +149,12 @@ pub async fn login(online: bool) -> Result<LoginResult, String> {
         Some(w) => Some(w),
         None => device::cached_wrap(&kv, user, &a.raw_id).await?,
     };
-    if let (Some(out), Some(w)) = (&a.prf_output, &wrap) {
-        let dek = unwrap_dek(&kek_from_prf(out).map_err(s)?, w, user, WrapSlot::Prf)
-            .map_err(|_| "This passkey could not decrypt the key".to_string())?;
+    // A copy that does not open (damaged, or planted with a stolen session: the server never replaces one)
+    // must not lock the passkey out. Without the PRF key nobody can make a copy that opens to another key,
+    // so falling back to the device's key or the words is safe.
+    if let (Some(out), Some(w)) = (&a.prf_output, &wrap)
+        && let Ok(dek) = unwrap_dek(&kek_from_prf(out).map_err(s)?, w, user, WrapSlot::Prf)
+    {
         return Ok(LoginResult::Unlocked(session(user, dek, true).await?));
     }
     let pending = match (&a.prf_output, &wrap) {

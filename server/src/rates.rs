@@ -14,6 +14,10 @@ use std::time::{Duration, Instant};
 /// A past quarter never changes. The current one gains a rate each business day.
 const FRESH: Duration = Duration::from_secs(6 * 3600);
 
+/// Entries kept at most. Codes are any three letters, so without a cap one account could fill the memory
+/// with quarters of made-up currencies. A full cache drops what has gone stale, or else everything.
+const MAX_ENTRIES: usize = 512;
+
 /// Currency, year and quarter.
 type Quarter = (String, i32, u32);
 
@@ -66,6 +70,14 @@ pub async fn get(s: State, AuthUser(_): AuthUser, Path((code, year, quarter)): P
         }
         _ => return Err(Error::Internal),
     };
-    s.rates.0.lock().map_err(|_| Error::Internal)?.insert(key, (Instant::now(), rates.clone()));
+    let mut cache = s.rates.0.lock().map_err(|_| Error::Internal)?;
+    if cache.len() >= MAX_ENTRIES {
+        cache.retain(|_, (at, _)| at.elapsed() < FRESH);
+        if cache.len() >= MAX_ENTRIES {
+            cache.clear();
+        }
+    }
+    cache.insert(key, (Instant::now(), rates.clone()));
+    drop(cache);
     Ok(Json(RatesResp { currency: code, rates }))
 }

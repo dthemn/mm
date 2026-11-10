@@ -524,6 +524,12 @@ await test("a passkey saved without its PRF copy gets one: words once, then the 
   await fresh();
   await d.waitNote("prf later");
   ok(!(await d.page.$(q("phrase-input"))), "no words on the next new device");
+  // A copy that does not open (damaged, or planted through a stolen session) asks for the words, not a dead end.
+  sql(`UPDATE credentials SET wrapped_dek_prf = decode(repeat('ab', 80), 'hex') WHERE cred_id = ${cred}`, dbName);
+  await fresh();
+  await d.type("phrase-input", words.join(" "));
+  await d.click("phrase-submit");
+  await d.waitNote("prf later");
   await d.close();
 });
 

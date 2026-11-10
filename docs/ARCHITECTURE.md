@@ -126,7 +126,7 @@ Internal transfers, recurring payments and deduplication arrive with statement i
 | Tampered OCR model | hostile input to the parser | SHA-256 pinned in the build (stage 4) | none |
 | Stolen locked phone | local ciphertext | key only in memory, idle lock | with PRF only ciphertext; without PRF weaker (section 2) |
 | Stolen unlocked phone | data until the timeout | "Stay signed in" (per device, default 12 hours): the passkey is asked again after it, or on Lock; with "1 min", lock after 5 minutes idle or 1 minute hidden | with 12 hours, whoever holds the unlocked phone in that time opens the app |
-| Login brute force | nothing | rate limit, 128-bit phrase | none |
+| Login brute force | nothing | rate limit per client address (behind a proxy, the address the proxy appended, never one the client wrote), 128-bit phrase | none |
 | Stranger registers | disk space | registration is open by the owner's choice; auth requests are rate-limited, record size and batch size are capped | no per-account storage quota yet: many accounts or records can fill the disk |
 | NBP sees rate requests | IP and period | request quarters, not transaction dates | NBP sees the IP |
 | Loss of passkey and 12 words | total data loss | warning and written-copy check | **irreversible by design** |

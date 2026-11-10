@@ -140,6 +140,9 @@ Gotchas learned the hard way:
 - Docker Desktop on this Mac can stall when binding ports 80 and 443. Test the prod stack with
   `HTTP_PORT=8088 HTTPS_PORT=8443 PUBLIC_ORIGIN=https://localhost:8443` in `deploy/.env`.
 - The production compose project is `mm-prod`; the dev one is `mm`. They used to collide.
+- Behind a proxy the login rate limit keys on the last `X-Forwarded-For` entry (`LastHopIp`): Cloudflare keeps the
+  client's own entries first, so the first one let anyone dodge the limit (fixed 2026-11-10). The app port must stay
+  reachable only through the proxy.
 - The auto-mode safety check blocks `git reset --hard`. Resolve merges by hand instead.
 - iPhone needs a real https address with a domain: plain http on a LAN IP disables passkeys, the camera and Web Locks,
   and Safari can wait forever without a passkey sheet on a certificate it does not trust (hence the 90 s limit).

@@ -51,7 +51,7 @@ impl Parts for (axum::http::StatusCode, String) {
     }
 }
 
-async fn start_with(limit: u32) -> Ctx {
+async fn start_with(limit: u32, behind_proxy: bool) -> Ctx {
     let base = base_url();
     let name = format!("t_{}", Uuid::new_v4().simple());
     let mut admin = PgConnection::connect(&base).await.expect("start the database: docker compose -f compose.dev.yml up -d");
@@ -65,7 +65,7 @@ async fn start_with(limit: u32) -> Ctx {
         rp_id: "localhost".into(),
         origin: format!("http://localhost:{}", addr.port()),
         static_dir: None,
-        behind_proxy: false,
+        behind_proxy,
         auth_per_minute: limit,
         nbp_url: fake_nbp().await,
     };
@@ -75,7 +75,7 @@ async fn start_with(limit: u32) -> Ctx {
 }
 
 async fn start() -> Ctx {
-    start_with(1000).await
+    start_with(1000, false).await
 }
 
 fn client() -> reqwest::Client {
@@ -384,7 +384,7 @@ async fn add_passkey_needs_phrase_not_just_a_cookie() {
 
 #[tokio::test]
 async fn login_rate_limit_applies() {
-    let c = start_with(5).await;
+    let c = start_with(5, false).await;
     let http = client();
     let mut limited = false;
     for _ in 0..12 {
@@ -392,6 +392,28 @@ async fn login_rate_limit_applies() {
         limited |= r.status() == 429;
     }
     assert!(limited);
+}
+
+/// Cloudflare keeps the client's own X-Forwarded-For and appends the real address: a new made-up first
+/// entry on every request must not buy a new allowance.
+#[tokio::test]
+async fn behind_a_proxy_the_rate_limit_keys_on_the_address_the_proxy_added() {
+    let c = start_with(5, true).await;
+    let http = client();
+    let mut limited = 0;
+    for i in 0..12 {
+        let r = http.post(format!("{}/api/auth/login/start", c.url))
+            .header("x-forwarded-for", format!("198.51.100.{i}, 203.0.113.7"))
+            .send().await.unwrap();
+        limited += usize::from(r.status() == 429);
+    }
+    assert!(limited > 0, "a made-up first entry is ignored");
+    let r = http.post(format!("{}/api/auth/login/start", c.url))
+        .header("x-forwarded-for", "203.0.113.8").send().await.unwrap();
+    assert_eq!(r.status(), 200, "another real address has its own allowance");
+    let h = |v: &str| { let mut m = axum::http::HeaderMap::new(); m.insert("x-forwarded-for", v.parse().unwrap()); m };
+    assert_eq!(mm_server::last_hop_ip(&h("1.1.1.1, 2.2.2.2")), Some("2.2.2.2".parse().unwrap()));
+    assert_eq!(mm_server::last_hop_ip(&h("not-an-ip")), None);
 }
 
 #[tokio::test]

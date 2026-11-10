@@ -11,7 +11,7 @@ use axum::http::{HeaderName, HeaderValue, header};
 use axum::{Router, extract::DefaultBodyLimit, routing::{get, post}};
 use sqlx::PgPool;
 use std::{path::PathBuf, sync::Arc, time::Duration};
-use tower_governor::{GovernorLayer, governor::GovernorConfigBuilder, key_extractor::{PeerIpKeyExtractor, SmartIpKeyExtractor}};
+use tower_governor::{GovernorError, GovernorLayer, governor::GovernorConfigBuilder, key_extractor::{KeyExtractor, PeerIpKeyExtractor}};
 use tower_http::{limit::RequestBodyLimitLayer, services::{ServeDir, ServeFile}, set_header::SetResponseHeaderLayer, trace::TraceLayer};
 use url::Url;
 use webauthn_rs::{Webauthn, WebauthnBuilder};
@@ -46,6 +46,25 @@ pub struct App {
 }
 
 pub type State = axum::extract::State<Arc<App>>;
+
+/// The client address for the rate limit behind a proxy: the last `X-Forwarded-For` entry, the one the
+/// nearest proxy added. Earlier entries come from the client itself: Cloudflare keeps whatever the client
+/// sent and appends the real address, so reading the first entry let anyone pick a fresh key per request.
+/// Without the header, the peer address. The app must be reachable only through the proxy.
+#[derive(Clone, Copy, Debug)]
+pub struct LastHopIp;
+
+pub fn last_hop_ip(headers: &axum::http::HeaderMap) -> Option<std::net::IpAddr> {
+    let v = headers.get_all("x-forwarded-for").iter().next_back()?.to_str().ok()?;
+    v.rsplit(',').next()?.trim().parse().ok()
+}
+
+impl KeyExtractor for LastHopIp {
+    type Key = std::net::IpAddr;
+    fn extract<T>(&self, req: &axum::http::Request<T>) -> Result<Self::Key, GovernorError> {
+        last_hop_ip(req.headers()).or_else(|| PeerIpKeyExtractor.extract(req).ok()).ok_or(GovernorError::UnableToExtractKey)
+    }
+}
 
 pub async fn migrate(db: &PgPool) -> Result<(), sqlx::migrate::MigrateError> {
     sqlx::migrate!("./migrations").run(db).await
@@ -87,7 +106,7 @@ pub fn router(db: PgPool, cfg: &Config) -> Router {
     let auth = if cfg.behind_proxy {
         let c = GovernorConfigBuilder::default()
             .per_millisecond(per_ms).burst_size(burst)
-            .key_extractor(SmartIpKeyExtractor).finish().expect("rate limit settings");
+            .key_extractor(LastHopIp).finish().expect("rate limit settings");
         auth.layer(GovernorLayer::new(Arc::new(c)))
     } else {
         let c = GovernorConfigBuilder::default()
