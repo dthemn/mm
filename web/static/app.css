@@ -96,6 +96,10 @@ label.check { flex-direction: row; align-items: center; gap: 10px; color: var(--
 .slip strong { font-size: clamp(15px, 5vw, 22px); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 :root:not([data-theme="light"]) .slip .income { color: #0b6b62; }
 :root[data-theme="light"] .slip { border: 1px solid var(--line); border-bottom: 0; }
+.slip.total { grid-column: 1 / -1; }
+.slip.total small { font-size: 12px; }
+.slip.total strong { font-size: clamp(18px, 6vw, 26px); }
+:root:not([data-theme="light"]) .slip .neg { color: #a3341f; }
 .balance { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: baseline; padding: 6px 0 10px;
   border-bottom: 1px dashed var(--rule); font-size: 18px; }
 .balance strong { font-size: 20px; font-variant-numeric: tabular-nums; }

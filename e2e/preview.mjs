@@ -27,7 +27,7 @@ await settle();
 await visitor.screenshot({ path: join(out, `${width}-landing-end.png`) });
 
 await click("nav-dashboard");
-await page.waitForSelector(q("tx-row"));
+await page.waitForSelector(q("dash-balance"));
 await shot("home");
 await page.click(`${q("filters")} summary`);
 await shot("filters");
@@ -40,6 +40,7 @@ await shot("monthly");
 await click("tab-summary");
 await shot("summary");
 await click("tab-daily");
+for (let i = 0; i < 31 && !(await page.$(q("tx-row"))); i++) await click("month-prev");
 await click("tx-row");
 await shot("detail");
 await click("nav-stats");

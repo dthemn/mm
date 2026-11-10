@@ -459,10 +459,16 @@ fn signed_pln(minor: i64) -> String {
     if minor < 0 { net(minor) } else { pln(minor) }
 }
 
-fn slips(income: i64, expense: i64) -> impl IntoView {
+fn slips(income: i64, expense: i64, total: Option<i64>) -> impl IntoView {
     let balance = income - expense;
     view! {
         <section class="summary" aria-label="Totals">
+            {total.map(|t| view! {
+                <div class="slip total" data-test="dash-total">
+                    <span class="label"><span>"Total"<small>" · all time"</small></span>{icon(Icon::Receipt)}</span>
+                    <strong class=money_class(t.min(0))>{signed_pln(t)}</strong>
+                </div>
+            })}
             <div class="slip"><span class="label">"Spent"{icon(Icon::Wallet)}</span><strong data-test="dash-expense">{pln(expense)}</strong></div>
             <div class="slip"><span class="label">"Income"{icon(Icon::Download)}</span><strong class="income" data-test="dash-income">{pln(income)}</strong></div>
             <p class="balance"><span>"Balance"</span><strong class=money_class(balance.min(0)) data-test="dash-balance">{signed_pln(balance)}</strong></p>
@@ -645,16 +651,18 @@ pub fn dashboard(c: Ctx) -> impl IntoView {
                 let year = month.year;
                 let yf = Filter { from: Date::new(year, 1, 1), to: Date::new(year, 12, 31), ..f.clone() };
                 let r = analytics::dashboard(&d.txs, &d.categories, &yf, month);
-                view! { {slips(r.income, r.expense)}{monthly(c, &d, &f, year)} }.into_any()
+                view! { {slips(r.income, r.expense, None)}{monthly(c, &d, &f, year)} }.into_any()
             }
             HomeTab::Daily => {
                 let f = c.filter.build_day();
                 let r = analytics::dashboard(&d.txs, &d.categories, &f, month);
-                view! { {slips(r.income, r.expense)}{daily(c, &d, &f)} }.into_any()
+                view! { {slips(r.income, r.expense, None)}{daily(c, &d, &f)} }.into_any()
             }
             HomeTab::Summary => {
                 let r = analytics::dashboard(&d.txs, &d.categories, &f, month);
-                view! { {slips(r.income, r.expense)}{summary(c, &d, &f, &r)} }.into_any()
+                let all = Filter { from: None, to: None, ..f.clone() };
+                let a = analytics::dashboard(&d.txs, &d.categories, &all, month);
+                view! { {slips(r.income, r.expense, Some(a.income - a.expense))}{summary(c, &d, &f, &r)} }.into_any()
             }
         }
     };

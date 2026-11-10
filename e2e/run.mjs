@@ -561,6 +561,31 @@ await test("dashboard totals are exact, income and expenses are separate", async
   eq(await money(fin, "dash-balance"), "4 978,84 zł", "balance");
 });
 
+await test("Summary's Total card adds up every month, the month's balance only its own", async () => {
+  const d = await Device.open("total");
+  await d.register();
+  await d.addNote("Lidl", "20,00");
+  await d.click("nav-add");
+  await d.click("kind-income");
+  await d.type("f-amount", "100,00");
+  await d.page.$eval(q("f-date"), (e) => {
+    e.value = "2025-03-15";
+    e.dispatchEvent(new Event("input", { bubbles: true }));
+    e.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  await d.click("f-save");
+  await d.page.waitForSelector(q("dash-balance"));
+  await d.click("nav-dashboard");
+  await d.click("tab-summary");
+  await d.page.waitForSelector(q("dash-total"));
+  // Saving opened March 2025, the operation's month.
+  await d.waitText("dash-balance", "100,00 zł");
+  eq(await money(d, "dash-total"), "Total · all time80,00 zł", "all time: 100,00 in March 2025 less 20,00 now");
+  await d.click("tab-daily");
+  ok(!(await d.page.$(q("dash-total"))), "only Summary has the card");
+  await d.close();
+});
+
 await test("categories count per item, and a category opens its items", async () => {
   await fin.click("nav-add");
   await fin.type("f-merchant", "Rossmann");

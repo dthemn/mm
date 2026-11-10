@@ -64,6 +64,8 @@ Principles, highest priority first:
   groups under a mixed receipt, the detail lists lines under their category.
 - Stats: Income/Expenses tabs, a ring by category (8 validated hues per theme, gray for Other, color fixed per
   category), and a tapped category leaves every number on that screen (`Filter.exclude`).
+- Home Summary opens with a full-width "Total · all time" slip (every income less every expense, ignoring dates but
+  keeping the account and category filters), above the month's Spent and Income.
 - Home Summary shows rings by category for expenses and income; a tap opens the category. Categories, merchants and
   accounts are receipt cards (`.slipcard`), one row per entry with a badge and its use, opening in place to edit.
   (`.sheet` is the calendar bottom sheet, do not reuse it.)
@@ -122,7 +124,7 @@ docker compose -f compose.dev.yml up -d        # throwaway test DB on 127.0.0.1:
 cargo test -p mm-core                          # 159 tests
 cargo test -p mm-server                        # 22 tests, needs the test DB
 web/build.sh && cargo build -p mm-server
-node e2e/run.mjs > /tmp/e2e.log 2>&1           # 60 tests; write to a file, never pipe into head or tail
+node e2e/run.mjs > /tmp/e2e.log 2>&1           # 61 tests; write to a file, never pipe into head or tail
 LIMIT=90000 node e2e/scan.mjs                  # real receipts in samples/receipts, prints scores only
 SHOW=1 ...                                     # also prints recognized lines (sets localStorage.mmDebug)
 docker compose up --build -d                   # whole app on http://localhost:8080 (use localhost, not 127.0.0.1)
