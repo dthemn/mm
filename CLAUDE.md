@@ -129,8 +129,8 @@ to home screen and OCR speed on a mid-range Android are still unverified. No VPS
 
 ```sh
 docker compose -f compose.dev.yml up -d        # throwaway test DB on 127.0.0.1:55432
-cargo test -p mm-core                          # 170 tests
-cargo test -p mm-server                        # 23 tests, needs the test DB
+cargo test -p mm-core                          # 171 tests
+cargo test -p mm-server                        # 27 tests, needs the test DB
 web/build.sh && cargo build -p mm-server
 node e2e/run.mjs > /tmp/e2e.log 2>&1           # 62 tests; write to a file, never pipe into head or tail
 LIMIT=90000 node e2e/scan.mjs                  # real receipts in samples/receipts, prints scores only
@@ -151,6 +151,14 @@ Gotchas learned the hard way:
 - Behind a proxy the login rate limit keys on the last `X-Forwarded-For` entry (`LastHopIp`): Cloudflare keeps the
   client's own entries first, so the first one let anyone dodge the limit (fixed 2026-11-10). The app port must stay
   reachable only through the proxy.
+- Every `/api` request that is not GET must be a same-origin fetch with `Content-Type: application/json`, or it gets 403
+  (CSRF guard in `server/src/lib.rs`). Tests and tools that POST without a body must still send `{}` as JSON.
+- Registration has its own limit (`REGISTER_PER_HOUR`, default 10 per address) and each account a storage quota
+  (`QUOTA_MB`, default 256, tracked in `users.bytes`; a push that shrinks data always passes). The e2e scripts set
+  `REGISTER_PER_HOUR=1000`, as they register dozens of accounts.
+- `cargo audit` (installed 2026-11-10) must stay clean; `.cargo/audit.toml` lists the advisories that do not apply,
+  with reasons. The phrase login key and signature are pinned by a test: a crate update that changes them locks
+  every account out.
 - The auto-mode safety check blocks `git reset --hard`. Resolve merges by hand instead.
 - iPhone needs a real https address with a domain: plain http on a LAN IP disables passkeys, the camera and Web Locks,
   and Safari can wait forever without a passkey sheet on a certificate it does not trust (hence the 90 s limit).
@@ -173,7 +181,8 @@ Gotchas learned the hard way:
 
 - Accuracy targets (total 95%, merchant and date 90%, items 85%) are unproven: only 3 real receipts exist,
   and they were used for tuning. Needs 30 to 50 receipts with a held-out third.
-- No CI yet with `cargo audit` and `cargo deny`.
+- No CI yet with `cargo audit` and `cargo deny` (the audit is clean when run by hand).
+- Deleting the account needs only a session, no fresh passkey or words.
 - No backups. Restoring an old database lowers `seq` below device cursors, so a restore epoch is needed first.
 - No bank-specific statement profiles, no PDF statements with many operations, no invoices yet.
 - A second open tab blocks erasing local data until it closes.

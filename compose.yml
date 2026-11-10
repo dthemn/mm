@@ -29,6 +29,9 @@ services:
       ORIGIN: ${ORIGIN:-http://localhost:8080}
       # Through the tunnel every request comes from cloudflared, so the rate limit reads the forwarded address.
       BEHIND_PROXY: ${BEHIND_PROXY:-0}
+      # Registration is open: new accounts per hour from one address, and the storage each account may use.
+      REGISTER_PER_HOUR: ${REGISTER_PER_HOUR:-10}
+      QUOTA_MB: ${QUOTA_MB:-256}
     ports:
       - "127.0.0.1:8080:8080"
     depends_on:

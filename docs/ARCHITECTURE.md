@@ -126,12 +126,13 @@ only in memory while the file is open. Only the resulting encrypted operations a
 | Server rolls back or hides records | old records | `revision` in AAD, manifest | detection, not prevention |
 | Network interception | nothing useful | HTTPS, HSTS | a compromised CA |
 | XSS in the app | the key in memory | strict CSP with no inline scripts | `wasm-unsafe-eval` is required for WASM |
-| Malicious dependency | the key in memory | `cargo audit`, `cargo deny`, Cargo.lock, minimal JS | trust in crate authors |
+| Malicious dependency | the key in memory | Cargo.lock, minimal JS, `cargo audit` (advisories that do not apply are listed with reasons in `.cargo/audit.toml`) | trust in crate authors; no CI runs the audit yet |
 | Tampered OCR model | hostile input to the parser | SHA-256 pinned in the build (stage 4) | none |
 | Stolen locked phone | local ciphertext | key only in memory, idle lock | with PRF only ciphertext; without PRF weaker (section 2) |
 | Stolen unlocked phone | data until the timeout | "Stay signed in" (per device, default 12 hours): the passkey is asked again after it, or on Lock; with "1 min", lock after 5 minutes idle or 1 minute hidden | with 12 hours, whoever holds the unlocked phone in that time opens the app |
 | Login brute force | nothing | rate limit per client address (behind a proxy, the address the proxy appended, never one the client wrote), 128-bit phrase | none |
-| Stranger registers | disk space | registration is open by the owner's choice; auth requests are rate-limited, record size and batch size are capped | no per-account storage quota yet: many accounts or records can fill the disk |
+| Stranger registers | disk space | registration is open by the owner's choice; new accounts are limited per address (`REGISTER_PER_HOUR`, default 10), each account stores at most `QUOTA_MB` (default 256) of ciphertext, record and batch sizes are capped | many addresses together can still create many accounts |
+| Another page sends requests with the user's cookie | could delete the account or sign out | SameSite=Strict cookie, and every request that changes state must be a same-origin JSON fetch (`Sec-Fetch-Site`, `Origin`, `Content-Type` checked) | none known |
 | NBP sees rate requests | IP and period | request quarters, not transaction dates | NBP sees the IP |
 | Loss of passkey and 12 words | total data loss | warning and written-copy check | **irreversible by design** |
 

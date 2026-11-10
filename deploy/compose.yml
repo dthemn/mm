@@ -26,6 +26,9 @@ services:
       # Only for a local test on another port. On a VPS leave PUBLIC_ORIGIN unset.
       ORIGIN: ${PUBLIC_ORIGIN:-https://${DOMAIN}}
       BEHIND_PROXY: "1"
+      # Registration is open: new accounts per hour from one address, and the storage each account may use.
+      REGISTER_PER_HOUR: ${REGISTER_PER_HOUR:-10}
+      QUOTA_MB: ${QUOTA_MB:-256}
     depends_on:
       db:
         condition: service_healthy

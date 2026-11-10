@@ -15,6 +15,8 @@ use std::net::SocketAddr;
 use uuid::Uuid;
 
 const CANARY: &str = "CANARY-Biedronka-1234,56-Mleko";
+/// Room for every test; the quota test sets a small one and fills it.
+const QUOTA: i64 = 64 << 20;
 
 fn base_url() -> String {
     std::env::var("TEST_DATABASE_URL").unwrap_or_else(|_| "postgres://mm:mm-dev@127.0.0.1:55432/mm".into())
@@ -52,6 +54,10 @@ impl Parts for (axum::http::StatusCode, String) {
 }
 
 async fn start_with(limit: u32, behind_proxy: bool) -> Ctx {
+    start_cfg(limit, behind_proxy, 1000, QUOTA).await
+}
+
+async fn start_cfg(limit: u32, behind_proxy: bool, register_per_hour: u32, quota_bytes: i64) -> Ctx {
     let base = base_url();
     let name = format!("t_{}", Uuid::new_v4().simple());
     let mut admin = PgConnection::connect(&base).await.expect("start the database: docker compose -f compose.dev.yml up -d");
@@ -67,6 +73,8 @@ async fn start_with(limit: u32, behind_proxy: bool) -> Ctx {
         static_dir: None,
         behind_proxy,
         auth_per_minute: limit,
+        register_per_hour,
+        quota_bytes,
         nbp_url: fake_nbp().await,
     };
     let app = router(db.clone(), &cfg).into_make_service_with_connect_info::<SocketAddr>();
@@ -373,7 +381,7 @@ async fn add_passkey_needs_phrase_not_just_a_cookie() {
     let c = start().await;
     let a = account(&c).await;
     let http = login(&c, &a).await;
-    let s: ChallengeResp = http.post(format!("{}/api/passkeys/add/start", c.url)).send().await.unwrap().json().await.unwrap();
+    let s: ChallengeResp = http.post(format!("{}/api/passkeys/add/start", c.url)).json(&json!({})).send().await.unwrap().json().await.unwrap();
     // Signed with a foreign key, as with a stolen cookie and no phrase.
     let bad = Phrase::generate().unwrap().auth_key().sign(&phrase_challenge("add-passkey", s.challenge_id, &s.nonce.unwrap().0));
     let r = http.post(format!("{}/api/passkeys/add/finish", c.url))
@@ -388,7 +396,7 @@ async fn login_rate_limit_applies() {
     let http = client();
     let mut limited = false;
     for _ in 0..12 {
-        let r = http.post(format!("{}/api/auth/login/start", c.url)).send().await.unwrap();
+        let r = http.post(format!("{}/api/auth/login/start", c.url)).json(&json!({})).send().await.unwrap();
         limited |= r.status() == 429;
     }
     assert!(limited);
@@ -402,13 +410,13 @@ async fn behind_a_proxy_the_rate_limit_keys_on_the_address_the_proxy_added() {
     let http = client();
     let mut limited = 0;
     for i in 0..12 {
-        let r = http.post(format!("{}/api/auth/login/start", c.url))
+        let r = http.post(format!("{}/api/auth/login/start", c.url)).json(&json!({}))
             .header("x-forwarded-for", format!("198.51.100.{i}, 203.0.113.7"))
             .send().await.unwrap();
         limited += usize::from(r.status() == 429);
     }
     assert!(limited > 0, "a made-up first entry is ignored");
-    let r = http.post(format!("{}/api/auth/login/start", c.url))
+    let r = http.post(format!("{}/api/auth/login/start", c.url)).json(&json!({}))
         .header("x-forwarded-for", "203.0.113.8").send().await.unwrap();
     assert_eq!(r.status(), 200, "another real address has its own allowance");
     let h = |v: &str| { let mut m = axum::http::HeaderMap::new(); m.insert("x-forwarded-for", v.parse().unwrap()); m };
@@ -435,7 +443,7 @@ async fn logout_kills_the_session() {
     let a = account(&c).await;
     let http = login(&c, &a).await;
     assert_eq!(http.get(format!("{}/api/session", c.url)).send().await.unwrap().status(), 200);
-    http.post(format!("{}/api/logout", c.url)).send().await.unwrap();
+    http.post(format!("{}/api/logout", c.url)).json(&json!({})).send().await.unwrap();
     assert_eq!(http.get(format!("{}/api/session", c.url)).send().await.unwrap().status(), 401);
 }
 
@@ -447,7 +455,7 @@ async fn deleting_the_account_removes_every_row() {
     let local = Mem::default();
     save(&local, &Keys { user_id: a.user, dek: &a.dek }, Uuid::new_v4(), &Envelope::new("n", json!({}))).await.unwrap();
     run_sync(&c, &a, &http, &local).await;
-    assert_eq!(http.post(format!("{}/api/account/delete", c.url)).send().await.unwrap().status(), 200);
+    assert_eq!(http.post(format!("{}/api/account/delete", c.url)).json(&json!({})).send().await.unwrap().status(), 200);
     for t in ["users", "records", "sessions", "credentials"] {
         let n: i64 = sqlx::query(&format!("SELECT count(*) FROM {t}")).fetch_one(&c.db).await.unwrap().get(0);
         assert_eq!(n, 0, "{t}");
@@ -463,6 +471,77 @@ async fn oversized_and_empty_records_are_rejected() {
         let req = PushReq { items: vec![PushItem { id: Uuid::new_v4(), expected_revision: 0, blob: B64(vec![0; len]) }] };
         assert_eq!(http.post(format!("{}/api/sync/push", c.url)).json(&req).send().await.unwrap().status(), 400);
     }
+}
+
+/// A page on another subdomain of the same site gets the SameSite=Strict cookie too, and a plain form POST
+/// needs no preflight: without this guard it could delete the account.
+#[tokio::test]
+async fn requests_from_other_pages_cannot_change_anything() {
+    let c = start().await;
+    let a = account(&c).await;
+    let http = login(&c, &a).await;
+    let del = || http.post(format!("{}/api/account/delete", c.url));
+    let form = del().header("content-type", "application/x-www-form-urlencoded").body("x=1").send().await.unwrap();
+    assert_eq!(form.status(), 403, "a form post");
+    assert_eq!(del().send().await.unwrap().status(), 403, "no body at all");
+    let other = del().json(&json!({})).header("origin", "https://evil.example.com").send().await.unwrap();
+    assert_eq!(other.status(), 403, "a foreign Origin");
+    let site = del().json(&json!({})).header("sec-fetch-site", "same-site").send().await.unwrap();
+    assert_eq!(site.status(), 403, "a sibling subdomain");
+    let n: i64 = sqlx::query("SELECT count(*) FROM users").fetch_one(&c.db).await.unwrap().get(0);
+    assert_eq!(n, 1, "the account is still there");
+    let own = del().json(&json!({})).header("sec-fetch-site", "same-origin")
+        .header("origin", c.url.replace("127.0.0.1", "localhost")).send().await.unwrap();
+    assert_eq!(own.status(), 200, "the app's own request");
+    assert_eq!(http.get(format!("{}/api/session", c.url)).send().await.unwrap().status(), 401, "reads stay GET");
+}
+
+#[tokio::test]
+async fn an_account_cannot_store_more_than_its_quota_but_can_always_shrink() {
+    let c = start_cfg(1000, false, 1000, 4 << 20).await;
+    let a = account(&c).await;
+    let http = login(&c, &a).await;
+    let push = |items: Vec<PushItem>| http.post(format!("{}/api/sync/push", c.url)).json(&PushReq { items }).send();
+    let big = 1 << 20;
+    let ids: Vec<Uuid> = (0..4).map(|_| Uuid::new_v4()).collect();
+    for id in &ids[..3] {
+        assert_eq!(push(vec![PushItem { id: *id, expected_revision: 0, blob: B64(vec![1; big]) }]).await.unwrap().status(), 200);
+    }
+    let over = push(vec![PushItem { id: ids[3], expected_revision: 0, blob: B64(vec![1; big + 64]) }]).await.unwrap();
+    assert_eq!(over.status(), 413);
+    let p: PullResp = http.get(format!("{}/api/sync/pull?since=0", c.url)).send().await.unwrap().json().await.unwrap();
+    assert_eq!(p.changes.len(), 3, "the refused push left nothing behind");
+    // Replacing a record with a smaller one, as a deletion does, passes.
+    let r = push(vec![PushItem { id: ids[0], expected_revision: 1, blob: B64(vec![2; 64]) }]).await.unwrap();
+    assert_eq!(r.status(), 200);
+    let bytes: i64 = sqlx::query("SELECT bytes FROM users WHERE id = $1").bind(a.user).fetch_one(&c.db).await.unwrap().get(0);
+    assert_eq!(bytes, 2 * big as i64 + 64);
+    assert_eq!(push(vec![PushItem { id: ids[3], expected_revision: 0, blob: B64(vec![1; big]) }]).await.unwrap().status(), 200);
+}
+
+#[tokio::test]
+async fn revisions_and_cursors_beyond_bigint_are_refused() {
+    let c = start().await;
+    let a = account(&c).await;
+    let http = login(&c, &a).await;
+    let req = PushReq { items: vec![PushItem { id: Uuid::new_v4(), expected_revision: u64::MAX, blob: B64(vec![1; 64]) }] };
+    assert_eq!(http.post(format!("{}/api/sync/push", c.url)).json(&req).send().await.unwrap().status(), 400);
+    let r = http.get(format!("{}/api/sync/pull?since={}", c.url, u64::MAX)).send().await.unwrap();
+    assert_eq!(r.status(), 400);
+}
+
+#[tokio::test]
+async fn new_accounts_have_their_own_tighter_limit() {
+    let c = start_cfg(1000, false, 3, QUOTA).await;
+    let http = client();
+    let mut codes = vec![];
+    for _ in 0..5 {
+        let r = http.post(format!("{}/api/auth/register/start", c.url)).json(&RegisterStartReq { label: "x".into() }).send().await.unwrap();
+        codes.push(r.status().as_u16());
+    }
+    assert_eq!(codes, [200, 200, 200, 429, 429]);
+    let r = http.post(format!("{}/api/auth/login/start", c.url)).json(&json!({})).send().await.unwrap();
+    assert_eq!(r.status(), 200, "signing in is not held back");
 }
 
 #[tokio::test]

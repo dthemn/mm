@@ -1,0 +1,9 @@
+# Advisories reviewed on 2026-11-10 that do not apply to mm. Check this list again on every dependency update.
+[advisories]
+ignore = [
+    # rsa (Marvin attack, no fixed release): pulled in by webauthn-rs, which only verifies RS256 passkey
+    # signatures with public keys. The attack needs a private-key operation, which never happens here.
+    "RUSTSEC-2023-0071",
+    # libsqlite3-sys: listed in Cargo.lock by sqlx, but the sqlite driver is never compiled (Postgres only).
+    "RUSTSEC-2026-0459",
+]

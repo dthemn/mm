@@ -22,6 +22,8 @@ async fn main() {
         static_dir: env::var("STATIC_DIR").ok().map(Into::into),
         behind_proxy: env::var("BEHIND_PROXY").is_ok_and(|v| v == "1"),
         auth_per_minute: env::var("AUTH_PER_MINUTE").ok().and_then(|v| v.parse().ok()).unwrap_or(30),
+        register_per_hour: env::var("REGISTER_PER_HOUR").ok().and_then(|v| v.parse().ok()).unwrap_or(10),
+        quota_bytes: env::var("QUOTA_MB").ok().and_then(|v| v.parse::<i64>().ok()).unwrap_or(256) * 1024 * 1024,
         nbp_url: env::var("NBP_URL").unwrap_or_else(|_| "https://api.nbp.pl".into()),
     };
     mm_server::spawn_sweeper(db.clone());

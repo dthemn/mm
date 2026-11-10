@@ -18,6 +18,7 @@ impl std::fmt::Display for ApiFail {
             Self::Network => f.write_str("cannot reach the server"),
             Self::Status(401, _) => f.write_str("login required"),
             Self::Status(429, _) => f.write_str("too many attempts, wait a minute"),
+            Self::Status(413, _) => f.write_str("the account's storage on the server is full; changes stay on this device"),
             Self::Status(c, m) => write!(f, "server error {c}: {m}"),
         }
     }

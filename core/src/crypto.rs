@@ -157,7 +157,7 @@ pub struct PhraseAuthKey(SigningKey);
 impl PhraseAuthKey {
     /// Compressed SEC1 point, 33 bytes.
     pub fn public(&self) -> Vec<u8> {
-        self.0.verifying_key().to_encoded_point(true).as_bytes().to_vec()
+        self.0.verifying_key().to_sec1_point(true).as_bytes().to_vec()
     }
     pub fn sign(&self, msg: &[u8]) -> Vec<u8> {
         let sig: Signature = self.0.sign(msg);
@@ -341,6 +341,19 @@ mod tests {
         ] {
             assert_eq!(open_record(&dek, bad, &b), Err(CryptoError::Decrypt));
         }
+    }
+
+    /// Accounts are found by this public key and log in with these signatures: a crate update that changed
+    /// either would lock everyone out. Values from p256 0.13, checked again after the move to 0.14.
+    #[test]
+    fn phrase_key_and_signature_never_change() {
+        let hex = |b: &[u8]| b.iter().map(|x| format!("{x:02x}")).collect::<String>();
+        let p = Phrase::parse("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about").unwrap();
+        let k = p.auth_key();
+        assert_eq!(hex(&k.public()), "0364169cc46cccbca684cb658159639a5d255f719dd64ee3a257292360ae2600a4");
+        let sig = k.sign(b"mm-kat");
+        assert_eq!(hex(&sig), "02aa11ef2d16aa94e724a42ab07b2e2056d14760955a809ea03d78d60857ec8cdec8af8250b01a402b6326b18240f0f93812ed515bf05df04bba9175b387832a");
+        verify_phrase_signature(&k.public(), b"mm-kat", &sig).unwrap();
     }
 
     #[test]

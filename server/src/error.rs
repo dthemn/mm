@@ -6,6 +6,10 @@ use mm_core::api::ApiError;
 pub enum Error {
     BadRequest(&'static str),
     Unauthorized,
+    /// The account's storage quota is used up.
+    Quota,
+    /// A request that did not come from the app's own page.
+    Forbidden,
     Internal,
 }
 
@@ -21,6 +25,8 @@ impl IntoResponse for Error {
         let (code, msg) = match self {
             Self::BadRequest(m) => (StatusCode::BAD_REQUEST, m),
             Self::Unauthorized => (StatusCode::UNAUTHORIZED, "unauthorized"),
+            Self::Quota => (StatusCode::PAYLOAD_TOO_LARGE, "storage quota"),
+            Self::Forbidden => (StatusCode::FORBIDDEN, "forbidden"),
             Self::Internal => (StatusCode::INTERNAL_SERVER_ERROR, "internal"),
         };
         (code, Json(ApiError { error: msg.into() })).into_response()

@@ -18,7 +18,7 @@ getrandom = "0.3"
 hkdf = "0.12"
 regex-lite = "0.1"
 encoding_rs = "0.8"
-p256 = { version = "0.13", features = ["ecdsa"] }
+p256 = { version = "0.14", features = ["ecdsa"] }
 sha2 = "0.10"
 zeroize = { version = "1", features = ["derive"] }
 # PDF statements and transfer confirmations: objects, streams and passwords, and the embedded fonts' maps

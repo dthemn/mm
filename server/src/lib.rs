@@ -7,8 +7,8 @@ pub mod error;
 pub mod rates;
 pub mod sync;
 
-use axum::http::{HeaderName, HeaderValue, header};
-use axum::{Router, extract::DefaultBodyLimit, routing::{get, post}};
+use axum::http::{HeaderName, HeaderValue, Method, header};
+use axum::{Router, extract::DefaultBodyLimit, middleware::{self, Next}, response::{IntoResponse, Response}, routing::{get, post}};
 use sqlx::PgPool;
 use std::{path::PathBuf, sync::Arc, time::Duration};
 use tower_governor::{GovernorError, GovernorLayer, governor::GovernorConfigBuilder, key_extractor::{KeyExtractor, PeerIpKeyExtractor}};
@@ -32,6 +32,11 @@ pub struct Config {
     pub behind_proxy: bool,
     /// Login requests per minute from one address.
     pub auth_per_minute: u32,
+    /// New accounts per hour from one address. Registration is open, so this bounds how fast one address can
+    /// create accounts, each with its own quota.
+    pub register_per_hour: u32,
+    /// Ciphertext bytes one account may store.
+    pub quota_bytes: i64,
     /// Base URL of the NBP API, replaceable in tests.
     pub nbp_url: String,
 }
@@ -43,6 +48,9 @@ pub struct App {
     pub http: reqwest::Client,
     pub nbp_url: String,
     pub rates: rates::Cache,
+    pub quota_bytes: i64,
+    /// The app's own origin: requests that change state must come from it.
+    pub origin: String,
 }
 
 pub type State = axum::extract::State<Arc<App>>;
@@ -64,6 +72,50 @@ impl KeyExtractor for LastHopIp {
     fn extract<T>(&self, req: &axum::http::Request<T>) -> Result<Self::Key, GovernorError> {
         last_hop_ip(req.headers()).or_else(|| PeerIpKeyExtractor.extract(req).ok()).ok_or(GovernorError::UnableToExtractKey)
     }
+}
+
+/// Cross-site request forgery guard for every request that changes state. SameSite=Strict keeps the cookie
+/// away from other sites, but not from other subdomains of the same site, and a plain form POST needs no
+/// preflight. The app's own requests are always same-origin fetches with a JSON body, so anything else is refused:
+/// a JSON content type cannot be sent cross-origin without a CORS preflight, which this server never allows.
+pub fn same_origin(origin: &str, headers: &axum::http::HeaderMap) -> bool {
+    let h = |n: &str| headers.get(n).and_then(|v| v.to_str().ok());
+    if h("sec-fetch-site").is_some_and(|v| v != "same-origin") {
+        return false;
+    }
+    if h("origin").is_some_and(|v| v != origin) {
+        return false;
+    }
+    h("content-type").is_some_and(|v| v.split(';').next().is_some_and(|t| t.trim().eq_ignore_ascii_case("application/json")))
+}
+
+async fn csrf(axum::extract::State(app): State, req: axum::extract::Request, next: Next) -> Response {
+    if matches!(*req.method(), Method::GET | Method::HEAD) || same_origin(&app.origin, req.headers()) {
+        next.run(req).await
+    } else {
+        error::Error::Forbidden.into_response()
+    }
+}
+
+/// A per-address rate limit: `per_ms` milliseconds to regain one request, up to `burst` at once.
+fn limit<K>(r: Router<Arc<App>>, per_ms: u64, burst: u32, key: K) -> Router<Arc<App>>
+where
+    K: KeyExtractor + Send + Sync + 'static,
+    K::Key: Send + Sync + 'static,
+{
+    let c = GovernorConfigBuilder::default()
+        .per_millisecond(per_ms).burst_size(burst)
+        .key_extractor(key).finish().expect("rate limit settings");
+    r.layer(GovernorLayer::new(Arc::new(c)))
+}
+
+fn limit_by(r: Router<Arc<App>>, per_ms: u64, burst: u32, behind_proxy: bool) -> Router<Arc<App>> {
+    if behind_proxy { limit(r, per_ms, burst, LastHopIp) } else { limit(r, per_ms, burst, PeerIpKeyExtractor) }
+}
+
+/// The path as logged: rates requests would otherwise record which currencies an account uses.
+fn log_path(path: &str) -> &str {
+    if path.starts_with("/api/rates/") { "/api/rates" } else { path }
 }
 
 pub async fn migrate(db: &PgPool) -> Result<(), sqlx::migrate::MigrateError> {
@@ -92,28 +144,23 @@ pub fn router(db: PgPool, cfg: &Config) -> Router {
         http: reqwest::Client::builder().user_agent("mm").build().expect("HTTP client"),
         nbp_url: cfg.nbp_url.trim_end_matches('/').to_string(),
         rates: rates::Cache::default(),
+        quota_bytes: cfg.quota_bytes,
+        origin: origin.origin().ascii_serialization(),
     });
 
     let per_ms = (60_000 / cfg.auth_per_minute.max(1)).max(1) as u64;
     let burst = cfg.auth_per_minute.clamp(1, 1000);
+    let register = Router::new().route("/register/start", post(auth::register_start));
+    let per_hour = cfg.register_per_hour.max(1);
+    let register = limit_by(register, (3_600_000 / per_hour).max(1) as u64, per_hour.clamp(1, 1000), cfg.behind_proxy);
     let auth = Router::new()
-        .route("/register/start", post(auth::register_start))
+        .merge(register)
         .route("/register/finish", post(auth::register_finish))
         .route("/login/start", post(auth::login_start))
         .route("/login/finish", post(auth::login_finish))
         .route("/recover/start", post(auth::recover_start))
         .route("/recover/finish", post(auth::recover_finish));
-    let auth = if cfg.behind_proxy {
-        let c = GovernorConfigBuilder::default()
-            .per_millisecond(per_ms).burst_size(burst)
-            .key_extractor(LastHopIp).finish().expect("rate limit settings");
-        auth.layer(GovernorLayer::new(Arc::new(c)))
-    } else {
-        let c = GovernorConfigBuilder::default()
-            .per_millisecond(per_ms).burst_size(burst)
-            .key_extractor(PeerIpKeyExtractor).finish().expect("rate limit settings");
-        auth.layer(GovernorLayer::new(Arc::new(c)))
-    };
+    let auth = limit_by(auth, per_ms, burst, cfg.behind_proxy);
 
     let api = Router::new()
         .nest("/auth", auth)
@@ -130,6 +177,7 @@ pub fn router(db: PgPool, cfg: &Config) -> Router {
             header::CACHE_CONTROL,
             HeaderValue::from_static("no-store"),
         ))
+        .layer(middleware::from_fn_with_state(app.clone(), csrf))
         .with_state(app);
 
     let mut r = Router::new().nest("/api", api);
@@ -148,7 +196,7 @@ pub fn router(db: PgPool, cfg: &Config) -> Router {
         .layer(TraceLayer::new_for_http()
             // Method, path and status only. Bodies and headers never reach the logs.
             .make_span_with(|q: &axum::http::Request<_>| {
-                tracing::info_span!("http", method = %q.method(), path = %q.uri().path())
+                tracing::info_span!("http", method = %q.method(), path = %log_path(q.uri().path()))
             }));
     let mut r = headers(r);
     if secure {

@@ -17,7 +17,7 @@ const CHROME = process.env.CHROME ?? "/Applications/Google Chrome.app/Contents/M
 const dbName = `scan_${randomBytes(6).toString("hex")}`;
 const bin = join(root, "target/debug/mm-server");
 const env = { ...process.env, DATABASE_URL: `postgres://mm:mm-dev@127.0.0.1:55432/${dbName}`, RP_ID: "localhost", ORIGIN,
-  STATIC_DIR: join(root, "web/dist"), LISTEN: `127.0.0.1:${PORT}`, AUTH_PER_MINUTE: "600", RUST_LOG: "warn" };
+  STATIC_DIR: join(root, "web/dist"), LISTEN: `127.0.0.1:${PORT}`, AUTH_PER_MINUTE: "600", REGISTER_PER_HOUR: "1000", RUST_LOG: "warn" };
 const sql = (q) => execFileSync("docker", ["exec", "mm-db-1", "psql", "-U", "mm", "-d", "mm", "-At", "-c", q]).toString();
 sql(`CREATE DATABASE ${dbName}`);
 // The server must not hold this script's output open, and must stop when the script stops.
