@@ -1379,17 +1379,18 @@ pub fn edit(c: Ctx, id: Option<Uuid>) -> impl IntoView {
         view! {
             <li class="item" class:doubt=i.doubt data-test="item">
                 {i.doubt.then(|| view! { <p class="warn" data-test="item-doubt">"Check this item"</p> })}
+                // Two lines per item: name, category and remove; then the five numbers side by side.
                 <div class="item-head">
                     <input class="item-name" data-test="item-name" placeholder="Item name" aria-label="Name" prop:value=move || i.name.get() on:input=move |e| i.name.set(event_target_value(&e)) />
+                    <span class="item-cat" aria-label="Category">{category_select(c, i.category, "item-category", Signal::stored(false))}</span>
                     <button class="item-remove" data-test="item-remove" aria-label="Remove item" on:click=move |_| items.update(|v| v.retain(|x| x.key != key))>{icon(Icon::Close)}</button>
                 </div>
                 <div class="igrid">
                     <label>"Qty"<input data-test="item-qty" inputmode="decimal" prop:value=move || i.qty.get() on:input=move |e| i.qty.set(event_target_value(&e)) /></label>
                     <label>"Unit"<input data-test="item-unit" prop:value=move || i.unit.get() on:input=move |e| i.unit.set(event_target_value(&e)) /></label>
                     <label>"Price"<input data-test="item-price" inputmode="decimal" prop:value=move || i.price.get() on:input=move |e| i.price.set(event_target_value(&e)) /></label>
-                    <label>"Discount"<input data-test="item-discount" inputmode="decimal" prop:value=move || i.discount.get() on:input=move |e| i.discount.set(event_target_value(&e)) /></label>
+                    <label>"Disc."<input data-test="item-discount" inputmode="decimal" aria-label="Discount" prop:value=move || i.discount.get() on:input=move |e| i.discount.set(event_target_value(&e)) /></label>
                     <label>"VAT %"<input data-test="item-vat" inputmode="decimal" prop:value=move || i.vat.get() on:input=move |e| i.vat.set(event_target_value(&e)) /></label>
-                    <label>"Category"{category_select(c, i.category, "item-category", Signal::stored(false))}</label>
                 </div>
             </li>
         }
