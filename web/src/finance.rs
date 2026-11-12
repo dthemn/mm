@@ -1165,6 +1165,16 @@ impl ItemDraft {
     }
 }
 
+/// The sum of one receipt line as typed so far, or a dash while it does not add up.
+fn line_sum(qty: &str, price: &str, discount: &str) -> String {
+    let d = if discount.trim().is_empty() { Some(0) } else { parse_amount(discount).ok() };
+    Qty::parse(qty).ok().zip(parse_amount(price).ok()).zip(d)
+        .and_then(|((q, p), d)| line_value(q, p)?.checked_sub(d))
+        .filter(|t| *t >= 0)
+        .map(format_amount)
+        .unwrap_or_else(|| "–".into())
+}
+
 /// Expense categories, or income ones when `income` is true.
 fn category_select(c: Ctx, sig: RwSignal<Uuid>, test: &'static str, income: Signal<bool>) -> impl IntoView {
     view! {
@@ -1382,18 +1392,23 @@ pub fn edit(c: Ctx, id: Option<Uuid>) -> impl IntoView {
         view! {
             <li class="item" class:doubt=i.doubt data-test="item">
                 {i.doubt.then(|| view! { <p class="warn" data-test="item-doubt">"Check this item"</p> })}
-                // Two lines per item: name, category and remove; then the five numbers side by side.
-                <div class="item-head">
+                // A receipt line: the name, then "qty unit × price" with the line's sum on the right,
+                // then the category, discount and VAT in small print. No boxes, only dashed rules.
+                <div class="rl-head">
                     <input class="item-name" data-test="item-name" placeholder="Item name" aria-label="Name" prop:value=move || i.name.get() on:input=move |e| i.name.set(event_target_value(&e)) />
-                    <span class="item-cat" aria-label="Category">{category_select(c, i.category, "item-category", Signal::stored(false))}</span>
                     <button class="item-remove" data-test="item-remove" aria-label="Remove item" on:click=move |_| items.update(|v| v.retain(|x| x.key != key))>{icon(Icon::Close)}</button>
                 </div>
-                <div class="igrid">
-                    <label>"Qty"<input data-test="item-qty" inputmode="decimal" prop:value=move || i.qty.get() on:input=move |e| i.qty.set(event_target_value(&e)) /></label>
-                    <label>"Unit"<input data-test="item-unit" prop:value=move || i.unit.get() on:input=move |e| i.unit.set(event_target_value(&e)) /></label>
-                    <label>"Price"<input data-test="item-price" inputmode="decimal" prop:value=move || i.price.get() on:input=move |e| i.price.set(event_target_value(&e)) /></label>
-                    <label>"Disc."<input data-test="item-discount" inputmode="decimal" aria-label="Discount" prop:value=move || i.discount.get() on:input=move |e| i.discount.set(event_target_value(&e)) /></label>
-                    <label>"VAT %"<input data-test="item-vat" inputmode="decimal" prop:value=move || i.vat.get() on:input=move |e| i.vat.set(event_target_value(&e)) /></label>
+                <div class="rl-calc">
+                    <input class="rl-qty" data-test="item-qty" inputmode="decimal" aria-label="Quantity" prop:value=move || i.qty.get() on:input=move |e| i.qty.set(event_target_value(&e)) />
+                    <input class="rl-unit" data-test="item-unit" aria-label="Unit" prop:value=move || i.unit.get() on:input=move |e| i.unit.set(event_target_value(&e)) />
+                    <span class="rl-x">"×"</span>
+                    <input class="rl-price" data-test="item-price" inputmode="decimal" placeholder="0,00" aria-label="Price" prop:value=move || i.price.get() on:input=move |e| i.price.set(event_target_value(&e)) />
+                    <strong class="rl-sum num" data-test="item-sum">{move || line_sum(&i.qty.get(), &i.price.get(), &i.discount.get())}</strong>
+                </div>
+                <div class="rl-meta">
+                    <span class="item-cat" aria-label="Category">{category_select(c, i.category, "item-category", Signal::stored(false))}</span>
+                    <label>"Disc."<input data-test="item-discount" inputmode="decimal" placeholder="0" aria-label="Discount" prop:value=move || i.discount.get() on:input=move |e| i.discount.set(event_target_value(&e)) /></label>
+                    <label>"VAT"<input data-test="item-vat" inputmode="decimal" placeholder="–" aria-label="VAT %" prop:value=move || i.vat.get() on:input=move |e| i.vat.set(event_target_value(&e)) />"%"</label>
                 </div>
             </li>
         }
@@ -1519,7 +1534,7 @@ pub fn edit(c: Ctx, id: Option<Uuid>) -> impl IntoView {
             })
         }}
         <h2 class="rule-head">"Items"</h2>
-        <ul class="items">
+        <ul class="items rlines">
             <For each=move || items.get() key=|i| i.key children=item_row />
         </ul>
         <button class="dashed" data-test="add-item" on:click=move |_| items.update(|v| v.push(ItemDraft::blank(category.get_untracked())))>{icon(Icon::Plus)}"Add item"</button>
