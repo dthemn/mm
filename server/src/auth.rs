@@ -82,7 +82,15 @@ async fn new_session(app: &crate::App, user: Uuid) -> Result<HeaderValue> {
     sqlx::query("INSERT INTO sessions (token_hash, user_id, expires_at) VALUES ($1,$2, now() + make_interval(days => $3))")
         .bind(Sha256::digest(token.as_bytes()).to_vec()).bind(user).bind(SESSION_DAYS)
         .execute(&app.db).await?;
+    seen(&app.db, user).await?;
     cookie(app, &token, SESSION_DAYS as i64 * 86400)
+}
+
+/// Marks the account as active this minute. Writes at most once a minute per account.
+async fn seen(db: &sqlx::PgPool, user: Uuid) -> Result<()> {
+    sqlx::query("UPDATE users SET seen_at = date_trunc('minute', now()) WHERE id = $1 AND seen_at IS DISTINCT FROM date_trunc('minute', now())")
+        .bind(user).execute(db).await?;
+    Ok(())
 }
 
 /// The authenticated user taken from the cookie.
@@ -108,7 +116,9 @@ where
             .bind(Sha256::digest(token.as_bytes()).to_vec())
             .fetch_optional(&app.db).await?
             .ok_or(Error::Unauthorized)?;
-        Ok(Self(row.get(0)))
+        let user: Uuid = row.get(0);
+        seen(&app.db, user).await?;
+        Ok(Self(user))
     }
 }
 

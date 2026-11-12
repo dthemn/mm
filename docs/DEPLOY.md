@@ -126,9 +126,20 @@ git pull
 docker compose -f deploy/compose.yml --env-file deploy/.env up -d --build
 ```
 
+## How many accounts
+
+```sh
+docker compose -f deploy/compose.yml --env-file deploy/.env exec app mm-server stats
+```
+
+It prints all accounts, new ones in the last 24 hours and 7 days, those online (a request in the last 5 minutes:
+an open app syncs every 30 seconds), active in 24 hours, 7 and 30 days, and those with a valid sign-in.
+On the test setup on your own computer: `docker compose exec app mm-server stats`.
+
 ## What the server stores
 
-Only encrypted records, their sizes, revision numbers and update times rounded to the hour.
+Only encrypted records, their sizes, revision numbers and update times rounded to the hour. For each account it also
+keeps when it was created and when it last used the server, to the minute, so the owner can count accounts.
 Receipt photos never reach it. Server logs hold the request method, path and status, without bodies or cookies.
 
 ## Known limits

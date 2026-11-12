@@ -9,7 +9,7 @@ pub mod sync;
 
 use axum::http::{HeaderName, HeaderValue, Method, header};
 use axum::{Router, extract::DefaultBodyLimit, middleware::{self, Next}, response::{IntoResponse, Response}, routing::{get, post}};
-use sqlx::PgPool;
+use sqlx::{PgPool, Row};
 use std::{path::PathBuf, sync::Arc, time::Duration};
 use tower_governor::{GovernorError, GovernorLayer, governor::GovernorConfigBuilder, key_extractor::{KeyExtractor, PeerIpKeyExtractor}};
 use tower_http::{limit::RequestBodyLimitLayer, services::{ServeDir, ServeFile}, set_header::SetResponseHeaderLayer, trace::TraceLayer};
@@ -120,6 +120,37 @@ fn log_path(path: &str) -> &str {
 
 pub async fn migrate(db: &PgPool) -> Result<(), sqlx::migrate::MigrateError> {
     sqlx::migrate!("./migrations").run(db).await
+}
+
+/// Counts of accounts for the owner, from `mm-server stats`. Online means a request in the last 5 minutes:
+/// an open, unlocked app syncs every 30 seconds.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Stats {
+    pub accounts: i64,
+    pub new_day: i64,
+    pub new_week: i64,
+    pub online: i64,
+    pub active_day: i64,
+    pub active_week: i64,
+    pub active_month: i64,
+    pub signed_in: i64,
+}
+
+pub async fn stats(db: &PgPool) -> Result<Stats, sqlx::Error> {
+    let r = sqlx::query(
+        "SELECT count(*),
+           count(*) FILTER (WHERE created_at > now() - interval '1 day'),
+           count(*) FILTER (WHERE created_at > now() - interval '7 days'),
+           count(*) FILTER (WHERE seen_at > now() - interval '5 minutes'),
+           count(*) FILTER (WHERE seen_at > now() - interval '1 day'),
+           count(*) FILTER (WHERE seen_at > now() - interval '7 days'),
+           count(*) FILTER (WHERE seen_at > now() - interval '30 days'),
+           (SELECT count(DISTINCT user_id) FROM sessions WHERE expires_at > now())
+         FROM users").fetch_one(db).await?;
+    Ok(Stats {
+        accounts: r.get(0), new_day: r.get(1), new_week: r.get(2), online: r.get(3),
+        active_day: r.get(4), active_week: r.get(5), active_month: r.get(6), signed_in: r.get(7),
+    })
 }
 
 /// Expired challenges and sessions only add metadata.

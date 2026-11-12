@@ -10,11 +10,25 @@ fn var(k: &str) -> String {
 async fn main() {
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info,sqlx=warn".into()))
+        .with_writer(std::io::stderr)
         .init();
     let opts: PgConnectOptions = var("DATABASE_URL").parse().expect("invalid DATABASE_URL");
     let db = PgPoolOptions::new().max_connections(10)
         .connect_with(opts.disable_statement_logging()).await.expect("cannot reach the database");
     mm_server::migrate(&db).await.expect("migrations failed");
+    // `mm-server stats` prints the account counts and exits.
+    if env::args().nth(1).as_deref() == Some("stats") {
+        let s = mm_server::stats(&db).await.expect("cannot count accounts");
+        println!("accounts       {}", s.accounts);
+        println!("new, 24 hours  {}", s.new_day);
+        println!("new, 7 days    {}", s.new_week);
+        println!("online, 5 min  {}", s.online);
+        println!("active, 24 h   {}", s.active_day);
+        println!("active, 7 days {}", s.active_week);
+        println!("active, 30 d   {}", s.active_month);
+        println!("signed in      {}", s.signed_in);
+        return;
+    }
 
     let cfg = mm_server::Config {
         rp_id: var("RP_ID"),

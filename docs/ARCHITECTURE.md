@@ -120,7 +120,7 @@ only in memory while the file is open. Only the resulting encrypted operations a
 
 | Actor or event | What they get | Protection | Residual risk |
 |---|---|---|---|
-| Database or backup leak | ciphertext, sizes, hourly times | E2EE, padding | record count and activity rhythm |
+| Database or backup leak | ciphertext, sizes, hourly times, each account's creation and last use to the minute | E2EE, padding | record count, activity rhythm, when an account was last used |
 | VPS admin, read-only | same, plus IP addresses in logs | logs without content, short retention | metadata |
 | VPS root, active | can replace the frontend | CSP, SRI, reproducible build | **cannot be fully removed**, the code would get the key |
 | Server rolls back or hides records | old records | `revision` in AAD, manifest | detection, not prevention |

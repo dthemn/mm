@@ -135,7 +135,7 @@ to home screen and OCR speed on a mid-range Android are still unverified. No VPS
 ```sh
 docker compose -f compose.dev.yml up -d        # throwaway test DB on 127.0.0.1:55432
 cargo test -p mm-core                          # 175 tests
-cargo test -p mm-server                        # 27 tests, needs the test DB
+cargo test -p mm-server                        # 28 tests, needs the test DB
 web/build.sh && cargo build -p mm-server
 node e2e/run.mjs > /tmp/e2e.log 2>&1           # 62 tests; write to a file, never pipe into head or tail
 LIMIT=90000 node e2e/scan.mjs                  # real receipts in samples/receipts, prints scores only
@@ -161,6 +161,9 @@ Gotchas learned the hard way:
 - Registration has its own limit (`REGISTER_PER_HOUR`, default 10 per address) and each account a storage quota
   (`QUOTA_MB`, default 256, tracked in `users.bytes`; a push that shrinks data always passes). The e2e scripts set
   `REGISTER_PER_HOUR=1000`, as they register dozens of accounts.
+- `docker compose exec app mm-server stats` counts accounts: new, online (a request in 5 minutes), active, signed in.
+  `users.seen_at` (to the minute, written at most once a minute) and `created_at` exist only for it (2026-11-12, the
+  owner's request); accounts older than that have no `created_at`.
 - `cargo audit` (installed 2026-11-10) must stay clean; `.cargo/audit.toml` lists the advisories that do not apply,
   with reasons. The phrase login key and signature are pinned by a test: a crate update that changes them locks
   every account out.

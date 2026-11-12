@@ -6,7 +6,7 @@ use mm_core::api::*;
 use mm_core::crypto::{Dek, Phrase, WrapSlot, phrase_challenge, unwrap_dek, wrap_dek};
 use mm_core::record::Envelope;
 use mm_core::sync::{Keys, LocalRecord, LocalStore, Remote, Syncer, current, save};
-use mm_server::{Config, CSP, migrate, router};
+use mm_server::{Config, CSP, Stats, migrate, router, stats};
 use serde_json::json;
 use sqlx::{Connection, Executor, PgConnection, PgPool, Row, postgres::PgPoolOptions};
 use std::cell::{Cell, RefCell};
@@ -623,4 +623,21 @@ async fn a_passkey_without_prf_gets_its_copy_once_and_only_for_its_own_user() {
     assert_eq!(r.unwrap()["saved"], false, "an existing copy is never replaced");
     assert_eq!(stored().await, Some(vec![3; 80]));
     assert_eq!(set(ha, vec![]).await.0, 400, "an empty copy is refused");
+}
+
+#[tokio::test]
+async fn the_owner_can_count_accounts_and_who_is_online() {
+    let c = start().await;
+    let (a, b, old) = (account(&c).await, account(&c).await, account(&c).await);
+    sqlx::query("UPDATE users SET created_at = now() - interval '40 days', seen_at = now() - interval '20 days' WHERE id = $1")
+        .bind(old.user).execute(&c.db).await.unwrap();
+    let http = login(&c, &a).await;
+    assert_eq!(http.get(format!("{}/api/sync/pull?since=0", c.url)).send().await.unwrap().status(), 200);
+    sqlx::query("UPDATE users SET seen_at = now() - interval '2 hours' WHERE id = $1").bind(b.user).execute(&c.db).await.unwrap();
+    let s = stats(&c.db).await.unwrap();
+    assert_eq!(s, Stats { accounts: 3, new_day: 2, new_week: 2, online: 1, active_day: 2, active_week: 2, active_month: 3, signed_in: 1 });
+    // The mark is to the minute, so it says little about exactly when an account was used.
+    let whole: bool = sqlx::query("SELECT seen_at = date_trunc('minute', seen_at) FROM users WHERE id = $1").bind(a.user)
+        .fetch_one(&c.db).await.unwrap().get(0);
+    assert!(whole);
 }
