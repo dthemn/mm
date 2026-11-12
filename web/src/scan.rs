@@ -7,7 +7,7 @@ use crate::icons::{Icon, icon};
 use js_sys::{Array, Float32Array, Function, Object, Promise, Reflect};
 use leptos::prelude::*;
 use leptos::task::spawn_local;
-use mm_core::categorize::{categorize, tidy_name};
+use mm_core::categorize::{UNKNOWN_ITEM, categorize, categorize_line, readable, tidy_name};
 use mm_core::crypto::merchant_id;
 use mm_core::model::*;
 use mm_core::ocr::{self, Line, Tensor};
@@ -243,10 +243,11 @@ fn draft(c: Ctx, p: &receipt::Parsed) -> Result<Draft, String> {
     let merchant = p.merchant.clone().unwrap_or_default();
     let mid = (!merchant.is_empty()).then(|| merchant_id(&s.dek, &merchant));
     let items: Vec<LineItem> = p.items.iter().map(|i| {
-        let name = tidy_name(&i.raw_name);
+        // A line whose name could not be read still keeps its money; the user sees it marked to check.
+        let name = if readable(&i.raw_name) { tidy_name(&i.raw_name) } else { UNKNOWN_ITEM.to_string() };
         LineItem {
             raw_name: i.raw_name.clone(),
-            category_id: categorize(&rules, mid, &merchant, &name),
+            category_id: categorize_line(&rules, mid, &merchant, &name),
             name,
             qty: i.qty,
             unit: i.unit.clone(),
@@ -269,7 +270,7 @@ fn draft(c: Ctx, p: &receipt::Parsed) -> Result<Draft, String> {
         nip: p.doubts.contains(&Doubt::Nip) && p.nip.is_some(),
         date: p.doubts.contains(&Doubt::Date),
         total: p.doubts.iter().any(|d| matches!(d, Doubt::Total | Doubt::ItemsSum { .. })) || p.doubts.contains(&Doubt::Vat),
-        items: (0..items.len()).map(|i| p.doubts.contains(&Doubt::Item(i))).collect(),
+        items: (0..items.len()).map(|i| p.doubts.contains(&Doubt::Item(i)) || items[i].name == UNKNOWN_ITEM).collect(),
     };
     let tx = Transaction {
         kind: TxKind::Expense,

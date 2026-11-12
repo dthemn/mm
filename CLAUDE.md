@@ -89,6 +89,10 @@ Principles, highest priority first:
   (`e2e/fixtures/confirmation-*.pdf`, rewritten with `UPDATE_FIXTURES=1 cargo test -p mm-core`).
   `cargo run -p mm-core --example pdf_lines -- file.pdf` (LINES=1 for every line) shows how a new bank's PDF reads.
   PDF statements with many operations and invoices are not read yet.
+- Receipt lines are categorized by `categorize_line`: product stems matched at word starts (glued names like
+  "SerGouda" are split first), the longest match wins, then the shop's default (grocery chains Food, variety shops
+  such as TEDi or Dealz Household), then Food, the owner's choice ("most of it is food"). Bank lines keep Other as the
+  last resort (`categorize`). An unreadable line name becomes "Unknown item", marked to check, and never makes a rule.
 - Categories are English: Food, Household, Subscriptions, Transport, Health, Clothing, Entertainment,
   Cafes & restaurants, Other. Built-ins have fixed ids. Merging sets `merged_into` instead of rewriting records.
 
@@ -129,7 +133,7 @@ to home screen and OCR speed on a mid-range Android are still unverified. No VPS
 
 ```sh
 docker compose -f compose.dev.yml up -d        # throwaway test DB on 127.0.0.1:55432
-cargo test -p mm-core                          # 171 tests
+cargo test -p mm-core                          # 175 tests
 cargo test -p mm-server                        # 27 tests, needs the test DB
 web/build.sh && cargo build -p mm-server
 node e2e/run.mjs > /tmp/e2e.log 2>&1           # 62 tests; write to a file, never pipe into head or tail

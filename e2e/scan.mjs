@@ -124,6 +124,7 @@ for (const f of files) {
       name: li.querySelector(sel("item-name")).value,
       qty: li.querySelector(sel("item-qty")).value,
       price: li.querySelector(sel("item-price")).value,
+      category: (() => { const s = li.querySelector(sel("item-category")); return s.options[s.selectedIndex]?.text; })(),
     })),
     doubts: document.querySelectorAll(".doubt").length,
     mismatch: !!document.querySelector(sel("mismatch")),

@@ -7,7 +7,7 @@ use crate::icons::{Icon, icon};
 use js_sys::{Array, Uint8Array};
 use leptos::prelude::*;
 use mm_core::analytics::{self, CategoryLine, Dashboard, Filter, MonthTotal, TREND_MONTHS, Tx};
-use mm_core::categorize::fold;
+use mm_core::categorize::{UNKNOWN_ITEM, fold};
 use mm_core::crypto::{merchant_id, named_id};
 use mm_core::date::{Date, Month};
 use mm_core::export::{self, Lookup};
@@ -1147,6 +1147,7 @@ impl ItemDraft {
 
     fn build(&self) -> Result<LineItem, String> {
         let name = self.name.get_untracked().trim().to_string();
+        let name = if name.is_empty() { UNKNOWN_ITEM.to_string() } else { name };
         let qty = Qty::parse(&self.qty.get_untracked()).map_err(|_| format!("Check the quantity of \"{name}\""))?;
         let unit_price = parse_amount(&self.price.get_untracked()).map_err(|_| format!("Check the price of \"{name}\""))?;
         let d = self.discount.get_untracked();
@@ -1344,7 +1345,9 @@ pub fn edit(c: Ctx, id: Option<Uuid>) -> impl IntoView {
                     }
                     // A category the user changed becomes a rule for the next receipts from this shop.
                     for (i, line) in t.items.iter().enumerate() {
-                        if suggested.with_value(|v| v.get(i).is_some_and(|sug| *sug != line.category_id)) {
+                        // "Unknown item" names nothing: a rule for it would recolor every unreadable line.
+                        let named = line.name != UNKNOWN_ITEM && !line.name.is_empty();
+                        if named && suggested.with_value(|v| v.get(i).is_some_and(|sug| *sug != line.category_id)) {
                             let pattern = fold(&line.name);
                             let key = format!("{}|{pattern}", t.merchant_id.map(|m| m.to_string()).unwrap_or_default());
                             let rule = CategoryRule { merchant_id: t.merchant_id, pattern, category_id: line.category_id };
