@@ -160,7 +160,6 @@ fn date_field(label: &'static str, test: &'static str, value: RwSignal<String>) 
 enum Step {
     Day,
     Month,
-    Year,
 }
 
 fn pln(minor: i64) -> String {
@@ -225,17 +224,15 @@ fn banners(c: Ctx) -> impl IntoView {
     }
 }
 
-/// The period with its arrows: a day on Daily, a year on Monthly, a month elsewhere.
+/// The period with its arrows: a day on Daily, a month elsewhere.
 fn filters(c: Ctx, step: Step) -> impl IntoView {
     let f = c.filter;
     let shift = move |n: i32| match step {
         // From a custom period, the arrows start again from the chosen day.
         Step::Day => f.show_day(if f.custom() { f.day.get_untracked() } else { f.day.get_untracked().add_days(n as i64) }),
         Step::Month => show_month(c, f.month.get_untracked().offset(n)),
-        Step::Year => show_month(c, f.month.get_untracked().offset(n * 12)),
     };
     let label = move || match step {
-        Step::Year => f.month.get().year.to_string(),
         _ if f.custom() => "Custom period".to_string(),
         Step::Day => f.day.get().day_label(today().year),
         Step::Month => f.month.get().long(),
@@ -532,8 +529,9 @@ fn daily(c: Ctx, d: &Data, f: &Filter) -> AnyView {
 }
 
 /// Twelve months of the year, newest first, with what came in and went out.
-fn monthly(c: Ctx, d: &Data, f: &Filter, year: i32) -> AnyView {
+fn monthly(c: Ctx, d: &Data, f: &Filter, shown: Month) -> AnyView {
     let now = today().month_of();
+    let year = shown.year;
     let rows = (1..=12u32).rev().filter_map(|m| {
         let month = Month { year, month: m };
         let mf = Filter { from: Some(month.first()), to: Some(month.last()), ..f.clone() };
@@ -548,7 +546,7 @@ fn monthly(c: Ctx, d: &Data, f: &Filter, year: i32) -> AnyView {
         };
         view! {
             <li>
-                <button class="monthrow" data-test="month-row" data-month=month.display() on:click=open>
+                <button class="monthrow" class:active=month == shown data-test="month-row" data-month=month.display() on:click=open>
                     <span class="mname">{month.name()}</span>
                     <span class="mfig"><span class="hint">"In"</span><span class="num income">{pln(inc)}</span></span>
                     <span class="mfig"><span class="hint">"Out"</span><span class=money_class(-exp)>{if exp > 0 { format!("−{}", pln(exp)) } else { pln(0) }}</span></span>
@@ -648,10 +646,8 @@ pub fn dashboard(c: Ctx) -> impl IntoView {
         let f = c.filter.build();
         match tab {
             HomeTab::Monthly => {
-                let year = month.year;
-                let yf = Filter { from: Date::new(year, 1, 1), to: Date::new(year, 12, 31), ..f.clone() };
-                let r = analytics::dashboard(&d.txs, &d.categories, &yf, month);
-                view! { {slips(r.income, r.expense, None)}{monthly(c, &d, &f, year)} }.into_any()
+                let r = analytics::dashboard(&d.txs, &d.categories, &f, month);
+                view! { {slips(r.income, r.expense, None)}{monthly(c, &d, &f, month)} }.into_any()
             }
             HomeTab::Daily => {
                 let f = c.filter.build_day();
@@ -670,8 +666,7 @@ pub fn dashboard(c: Ctx) -> impl IntoView {
         {tabs(c)}
         {move || filters(c, match c.filter.tab.get() {
             HomeTab::Daily => Step::Day,
-            HomeTab::Monthly => Step::Year,
-            HomeTab::Summary => Step::Month,
+            HomeTab::Monthly | HomeTab::Summary => Step::Month,
         })}
         {banners(c)}
         {body}

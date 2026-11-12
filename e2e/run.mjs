@@ -687,12 +687,22 @@ await test("home lists operations by day, newest first, and a tap shows the rece
   await fin.page.waitForSelector(q("day"));
 });
 
-await test("Monthly lists the year's months, and a month opens its days", async () => {
+await test("Monthly shows one month above the year's months, and a month opens its days", async () => {
   await fin.ops();
   const month = await fin.page.$eval(q("month"), (e) => e.dataset.month);
   await fin.click("tab-monthly");
   await fin.page.waitForSelector(q("month-row"));
-  eq(await fin.text("month"), month.split(".")[1], "the header shows the year");
+  eq(await fin.page.$eval(q("month"), (e) => e.dataset.month), month, "the header keeps the month");
+  ok(/\d{4}$/.test(await fin.text("month")) && !/^\d{4}$/.test(await fin.text("month")), `a month, not a year: ${await fin.text("month")}`);
+  ok((await fin.text("dash-expense")).replaceAll("\u00a0", " ").includes("44,35 zł"), "the slips count the month");
+  ok(await fin.page.$$eval(q("month-row"), (a, m) => a.find((e) => e.dataset.month === m).classList.contains("active"), month), "the shown month is marked");
+  await fin.click("month-prev");
+  await fin.page.waitForFunction((s, was) => document.querySelector(s).dataset.month !== was, {}, q("month"), month);
+  const [mm, yy] = month.split(".").map(Number);
+  const prev = mm === 1 ? `12.${yy - 1}` : `${String(mm - 1).padStart(2, "0")}.${yy}`;
+  eq(await fin.page.$eval(q("month"), (e) => e.dataset.month), prev, "the arrows move a month");
+  await fin.click("month-next");
+  await fin.page.waitForFunction((s, m) => document.querySelector(s).dataset.month === m, {}, q("month"), month);
   const rows = await fin.page.$$eval(q("month-row"), (a) => a.map((e) => e.dataset.month));
   ok(rows.includes(month), `this month is listed: ${rows}`);
   ok(rows.every((m, i) => i === 0 || +rows[i - 1].split(".")[0] > +m.split(".")[0]), `newest month first: ${rows}`);

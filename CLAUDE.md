@@ -42,8 +42,9 @@ Principles, highest priority first:
 - Look: monospace type, dashed rules, receipt-slip cards. Dark theme by default; the user's theme is an encrypted
   `prefs` record (id from `named_id`), cached in `localStorage.mmTheme` only so the sign-in screen opens in it.
 - Home has Daily, Monthly and Summary tabs (`FilterState.tab`). Daily shows one day (`FilterState.day`, its month is
-  always `FilterState.month`) and its arrows move a day, the owner's choice; Monthly's arrows move a year, Summary's and
-  Stats' a month (opening a month puts Daily on today or the month's latest day with operations). Tapping the period
+  always `FilterState.month`) and its arrows move a day, the owner's choice; Monthly shows a month (slips for that month,
+  then the year's months with it marked; the owner's choice on 2026-11-12, it used to show a year), and its, Summary's
+  and Stats' arrows move a month (opening a month puts Daily on today or the month's latest day with operations). Tapping the period
   opens a calendar sheet that can jump to any year, month or day. Stats keeps the trend, top merchants and subscriptions.
 - The camera is a full-screen overlay. The light button shows only when `getCapabilities().torch` is true; whether
   iPhone Safari offers it is unverified.

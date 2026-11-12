@@ -93,7 +93,9 @@ label.check { flex-direction: row; align-items: center; gap: 10px; color: var(--
   mask: conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg) 50% / calc(2 * var(--z)) 100%; }
 .slip .label { display: flex; justify-content: space-between; align-items: center; font-size: 14px; color: var(--paper-muted); }
 .slip .label .icon { width: 20px; height: 20px; color: var(--paper-fg); }
-.slip strong { font-size: clamp(15px, 5vw, 22px); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Sized by the slip's own width, so "21 361,32 zł" fits a half-width slip on a phone. */
+.slip { container-type: inline-size; }
+.slip strong { font-size: clamp(13px, 12cqi, 22px); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 :root:not([data-theme="light"]) .slip .income { color: #0b6b62; }
 :root[data-theme="light"] .slip { border: 1px solid var(--line); border-bottom: 0; }
 .slip.total { grid-column: 1 / -1; }
@@ -195,6 +197,7 @@ label.button .file { position: absolute; inset: 0; opacity: 0; min-height: 0; wi
 .monthrow { display: grid; grid-template-columns: 1fr 1fr 1fr; grid-template-areas: "name name name" "a b c"; gap: 2px 8px; border: 0;
   border-bottom: 1px dashed var(--line); border-radius: 0; padding: 12px 0; text-align: left; }
 .monthrow .mname { grid-area: name; font-weight: 800; font-size: 17px; }
+.monthrow.active .mname { color: var(--accent); }
 .monthrow .mfig { display: flex; flex-direction: column; min-width: 0; } .monthrow .mfig .num { text-align: left; font-size: 14px; overflow: hidden; text-overflow: ellipsis; }
 .plain { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
 .plain li { padding: 10px 0; border-bottom: 1px dashed var(--line); }
